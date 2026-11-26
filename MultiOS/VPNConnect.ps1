@@ -17,7 +17,7 @@ The script fixes the issues from the original per-OS variants by:
 
 - using the correct macOS VPN tooling (`scutil --nc`) instead of PPPoE-only commands
 - avoiding command-line password passing for `rasdial`, `scutil`, and `nmcli`
-- prompting for credentials only when the selected backend can consume them safely
+- accepting OpenConnect credentials from the caller
 
 .PARAMETER ProfileName
 The VPN profile or service name. When using `OpenConnect`, this can also be the
@@ -75,7 +75,7 @@ Starts a Linux NetworkManager connection profile using `nmcli`.
 .EXAMPLE
 pwsh ./MultiOS/VPNConnect.ps1 -ProfileName "vpn.example.com" -Backend OpenConnect -UserName "myuser"
 
-Prompts for credentials and starts an `openconnect` session.
+Uses the supplied credential for an `openconnect` session.
 
 .NOTES
 Date: 2026-04-04
@@ -85,7 +85,7 @@ Requires:
 - The platform-native backend (`rasdial`, `scutil`, `nmcli`, or `openconnect`)
 #>
 
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [Alias('VpnProfileName', 'VpnServiceName', 'ConnectionName')]
@@ -108,8 +108,14 @@ param(
     [ValidateRange(1, 120)]
     [int]$WaitSeconds = 15,
 
-    [switch]$PassThru
+    [switch]$PassThru,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 function Test-AutomaticBooleanVariable {
     param(
@@ -239,25 +245,6 @@ function Invoke-NativeCommand {
     }
 }
 
-function Invoke-InteractiveNativeCommand {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$CommandName,
-
-        [Parameter(Mandatory = $true)]
-        [string[]]$ArgumentList
-    )
-
-    Write-Verbose ("Executing interactive native command: {0} {1}" -f $CommandName, ($ArgumentList -join ' '))
-
-    & $CommandName @ArgumentList
-    $exitCode = $LASTEXITCODE
-
-    [pscustomobject]@{
-        ExitCode = $exitCode
-    }
-}
-
 function ConvertTo-VpnResult {
     param(
         [Parameter(Mandatory = $true)]
@@ -286,23 +273,6 @@ function ConvertTo-VpnResult {
     }
 }
 
-function Get-OpenConnectCredential {
-    param(
-        [string]$RequestedUserName,
-        [System.Management.Automation.PSCredential]$SuppliedCredential
-    )
-
-    if ($null -ne $SuppliedCredential) {
-        return $SuppliedCredential
-    }
-
-    if ($RequestedUserName) {
-        return Get-Credential -UserName $RequestedUserName -Message 'Enter the VPN credentials for openconnect.'
-    }
-
-    return Get-Credential -Message 'Enter the VPN credentials for openconnect.'
-}
-
 function Connect-WithRasDial {
     param(
         [Parameter(Mandatory = $true)]
@@ -322,9 +292,9 @@ function Connect-WithRasDial {
     }
 
     Write-Host "Connecting to Windows VPN profile '$VpnProfileName' using rasdial..."
-    Write-Host 'Credentials are not passed on the command line. Use saved credentials in the VPN profile or the Windows prompt if it appears.'
+    Write-Host 'Credentials are not passed on the command line. Use saved credentials in the VPN profile for the unattended account.'
 
-    $connectResult = Invoke-InteractiveNativeCommand -CommandName 'rasdial.exe' -ArgumentList @($VpnProfileName)
+    $connectResult = Invoke-NativeCommand -CommandName 'rasdial.exe' -ArgumentList @($VpnProfileName)
     if ($connectResult.ExitCode -ne 0) {
         throw "rasdial failed with exit code $($connectResult.ExitCode)."
     }
@@ -402,9 +372,9 @@ function Connect-WithScutil {
     }
 
     Write-Host "Connecting to macOS VPN service '$VpnProfileName' using scutil..."
-    Write-Host 'Passwords are not passed on the command line. macOS may use Keychain or prompt through the system VPN stack.'
+    Write-Host 'Passwords are not passed on the command line. Use a Keychain profile already accessible to the calling account.'
 
-    $startResult = Invoke-InteractiveNativeCommand -CommandName 'scutil' -ArgumentList $arguments
+    $startResult = Invoke-NativeCommand -CommandName 'scutil' -ArgumentList $arguments
     if ($startResult.ExitCode -ne 0) {
         throw "scutil exited with code $($startResult.ExitCode) while starting '$VpnProfileName'."
     }
@@ -441,9 +411,9 @@ function Connect-WithNmcli {
     }
 
     Write-Host "Connecting to Linux VPN profile '$VpnProfileName' using nmcli..."
-    Write-Host 'nmcli will ask for missing secrets interactively if the profile or secret agent does not already provide them.'
+    Write-Host 'Use a NetworkManager profile with credentials available to the calling account.'
 
-    $connectResult = Invoke-InteractiveNativeCommand -CommandName 'nmcli' -ArgumentList @('--ask', '--wait', $ActivationWaitSeconds.ToString(), 'connection', 'up', 'id', $VpnProfileName)
+    $connectResult = Invoke-NativeCommand -CommandName 'nmcli' -ArgumentList @('--wait', $ActivationWaitSeconds.ToString(), 'connection', 'up', 'id', $VpnProfileName)
     if ($connectResult.ExitCode -ne 0) {
         throw "nmcli exited with code $($connectResult.ExitCode) while activating '$VpnProfileName'."
     }
@@ -467,8 +437,6 @@ function Connect-WithOpenConnect {
         [Parameter(Mandatory = $true)]
         [string]$ProfileOrServerName,
 
-        [string]$RequestedUserName,
-
         [string]$RequestedServerAddress,
 
         [System.Management.Automation.PSCredential]$SuppliedCredential
@@ -481,14 +449,15 @@ function Connect-WithOpenConnect {
         $targetHost = $ProfileOrServerName
     }
 
-    $openConnectCredential = Get-OpenConnectCredential -RequestedUserName $RequestedUserName -SuppliedCredential $SuppliedCredential
+    if (-not $SuppliedCredential) { throw 'OpenConnect requires -Credential.' }
+    $openConnectCredential = $SuppliedCredential
     $plainPassword = $openConnectCredential.GetNetworkCredential().Password
 
     try {
         Write-Host "Connecting to '$targetHost' using openconnect..."
         Write-Host 'openconnect usually runs in the foreground until you disconnect it.'
 
-        $arguments = @("--user=$($openConnectCredential.UserName)", '--passwd-on-stdin', $targetHost)
+        $arguments = @("--user=$($openConnectCredential.UserName)", '--passwd-on-stdin', '--non-inter', $targetHost)
         $plainPassword | & openconnect @arguments
         $exitCode = $LASTEXITCODE
 
@@ -526,46 +495,29 @@ if ($UserName -and $resolvedBackend -eq 'RasDial') {
 }
 
 if ($UserName -and $resolvedBackend -eq 'Nmcli') {
-    Write-Warning 'The Nmcli backend relies on the saved NetworkManager profile or nmcli interactive secret prompts. UserName is not injected directly.'
+    Write-Warning 'The Nmcli backend relies on the saved NetworkManager profile. UserName is not injected directly.'
 }
 
 Write-Host "Platform detected: $platform"
 Write-Host "Selected backend: $resolvedBackend"
 
-$targetDescription = switch ($resolvedBackend) {
-    'OpenConnect' {
-        if ($ServerAddress) {
-            $ServerAddress
-        }
-        else {
-            $ProfileName
-        }
-    }
-    default {
-        $ProfileName
-    }
-}
-
 $result = $null
 
-if ($PSCmdlet.ShouldProcess($targetDescription, "Connect VPN using $resolvedBackend")) {
-    switch ($resolvedBackend) {
-        'RasDial' {
-            $result = Connect-WithRasDial -VpnProfileName $ProfileName
-        }
-        'Scutil' {
-            $result = Connect-WithScutil -VpnProfileName $ProfileName -RequestedUserName $UserName -StatusWaitSeconds ([Math]::Max(1, [Math]::Min($WaitSeconds, 30)))
-        }
-        'Nmcli' {
-            $result = Connect-WithNmcli -VpnProfileName $ProfileName -ActivationWaitSeconds $WaitSeconds
-        }
-        'OpenConnect' {
-            $effectiveUserName = if ($Credential) { $Credential.UserName } else { $UserName }
-            $result = Connect-WithOpenConnect -ProfileOrServerName $ProfileName -RequestedUserName $effectiveUserName -RequestedServerAddress $ServerAddress -SuppliedCredential $Credential
-        }
-        default {
-            throw "Unhandled backend '$resolvedBackend'."
-        }
+switch ($resolvedBackend) {
+    'RasDial' {
+        $result = Connect-WithRasDial -VpnProfileName $ProfileName
+    }
+    'Scutil' {
+        $result = Connect-WithScutil -VpnProfileName $ProfileName -RequestedUserName $UserName -StatusWaitSeconds ([Math]::Max(1, [Math]::Min($WaitSeconds, 30)))
+    }
+    'Nmcli' {
+        $result = Connect-WithNmcli -VpnProfileName $ProfileName -ActivationWaitSeconds $WaitSeconds
+    }
+    'OpenConnect' {
+        $result = Connect-WithOpenConnect -ProfileOrServerName $ProfileName -RequestedServerAddress $ServerAddress -SuppliedCredential $Credential
+    }
+    default {
+        throw "Unhandled backend '$resolvedBackend'."
     }
 }
 

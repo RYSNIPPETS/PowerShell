@@ -47,7 +47,7 @@ switch ($PSCmdlet.ParameterSetName) {
         $connectParams.AuthenticationUrl = $AuthenticationUrl
     }
     'Browser' {
-        $connectParams.UseSystemBrowser = $true
+        throw 'Supply a credential or application certificate for unattended authentication.'
     }
     'Certificate' {
         $connectParams.ClientId = $ClientId

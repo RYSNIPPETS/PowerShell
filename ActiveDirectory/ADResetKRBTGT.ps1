@@ -8,10 +8,16 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [string]$Server
+    [string]$Server,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Identity = 'krbtgt'; Properties = 'DistinguishedName' }
 if ($Server) { $parameters.Server = $Server }
@@ -38,9 +44,7 @@ foreach ($character in $characters) {
 }
 $password.MakeReadOnly()
 
-if ($PSCmdlet.ShouldProcess($account.DistinguishedName, 'Reset KRBTGT password')) {
-    $resetParameters = @{ Identity = $account.DistinguishedName; Reset = $true; NewPassword = $password }
-    if ($Server) { $resetParameters.Server = $Server }
-    Set-ADAccountPassword @resetParameters
-    Write-Warning 'Verify replication on every domain controller before performing the second KRBTGT reset.'
-}
+$resetParameters = @{ Identity = $account.DistinguishedName; Reset = $true; NewPassword = $password }
+if ($Server) { $resetParameters.Server = $Server }
+Set-ADAccountPassword @resetParameters
+Write-Warning 'Verify replication on every domain controller before performing the second KRBTGT reset.'

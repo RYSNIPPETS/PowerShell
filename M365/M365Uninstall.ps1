@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
@@ -18,10 +18,16 @@ param(
 
     [switch]$Silent,
 
-    [switch]$ForceAppShutdown
+    [switch]$ForceAppShutdown,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$displayLevel = if ($Silent) { 'None' } else { 'Full' }
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+$displayLevel = if ($PSBoundParameters.ContainsKey('Silent') -and -not $Silent) { 'Full' } else { 'None' }
 $forceShutdown = if ($ForceAppShutdown) { 'TRUE' } else { 'FALSE' }
 $configuration = @"
 <Configuration>
@@ -30,10 +36,6 @@ $configuration = @"
   <Property Name="FORCEAPPSHUTDOWN" Value="$forceShutdown" />
 </Configuration>
 "@
-
-if (-not $PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Remove all Microsoft 365 Apps Click-to-Run products')) {
-    return
-}
 
 New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
 $configurationPath = Join-Path $WorkDirectory 'RemoveMicrosoft365.xml'

@@ -5,10 +5,16 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
-    [string[]]$Name = @('Rsat.*')
+    [string[]]$Name = @('Rsat.*'),
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
@@ -20,7 +26,5 @@ $capabilities = Get-WindowsCapability -Online |
     }
 
 foreach ($capability in $capabilities) {
-    if ($PSCmdlet.ShouldProcess($capability.Name, 'Install Windows capability')) {
-        Add-WindowsCapability -Online -Name $capability.Name
-    }
+    Add-WindowsCapability -Online -Name $capability.Name
 }

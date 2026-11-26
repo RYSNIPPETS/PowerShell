@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(DefaultParameterSetName = 'Wim', SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding(DefaultParameterSetName = 'Wim')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Wim')]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
@@ -25,8 +25,14 @@ param(
 
     [string]$MountPath = (Join-Path $env:TEMP 'PowerShellPatchMount'),
 
-    [switch]$ResetBase
+    [switch]$ResetBase,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 $packages = @(Get-ChildItem -LiteralPath $PatchPath -Recurse -File |
@@ -35,10 +41,6 @@ $packages = @(Get-ChildItem -LiteralPath $PatchPath -Recurse -File |
 if (-not $packages) { throw "No CAB or MSU packages were found below '$PatchPath'." }
 
 $target = if ($PSCmdlet.ParameterSetName -eq 'Wim') { "$WimPath (index $WimIndex)" } else { $VhdPath }
-if (-not $PSCmdlet.ShouldProcess($target, "Install $($packages.Count) update package(s)")) {
-    $packages
-    return
-}
 
 if ($PSCmdlet.ParameterSetName -eq 'Wim') {
     if (-not (Get-Command Mount-WindowsImage -ErrorAction SilentlyContinue)) {

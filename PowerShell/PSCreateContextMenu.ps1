@@ -5,10 +5,16 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [string]$PowerShellPath = (Join-Path $PSHOME 'pwsh.exe')
+    [string]$PowerShellPath = (Join-Path $PSHOME 'pwsh.exe'),
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not (Test-Path -LiteralPath $PowerShellPath -PathType Leaf)) {
     throw "PowerShell executable not found at '$PowerShellPath'."
@@ -19,8 +25,6 @@ $commandPath = Join-Path $verbPath 'Command'
 $escapedPowerShellPath = $PowerShellPath.Replace("'", "''")
 $command = '"{0}" -NoProfile -Command "Start-Process -FilePath ''{0}'' -ArgumentList ''-NoProfile -File \"%1\"'' -Verb RunAs"' -f $escapedPowerShellPath
 
-if ($PSCmdlet.ShouldProcess($verbPath, 'Create elevated PowerShell 7 context-menu command')) {
-    $null = New-Item -Path $commandPath -Force
-    Set-Item -LiteralPath $verbPath -Value 'Run with PowerShell 7 (Administrator)'
-    Set-Item -LiteralPath $commandPath -Value $command
-}
+$null = New-Item -Path $commandPath -Force
+Set-Item -LiteralPath $verbPath -Value 'Run with PowerShell 7 (Administrator)'
+Set-Item -LiteralPath $commandPath -Value $command

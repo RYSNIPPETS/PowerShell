@@ -3,15 +3,15 @@
     Creates a valid Autounattend.xml for Windows Server 2022 or 2025 and can build a bootable ISO.
 .DESCRIPTION
     The answer file creates a UEFI/GPT layout with EFI, MSR, and Windows partitions, selects an image by
-    its exact display name, configures locale and time zone, and can set the local Administrator password.
+    its exact display name, configures locale and time zone. Configure the Administrator password during setup or through deployment tooling.
     Building an ISO requires Windows ADK oscdimg.exe and a source Windows Server ISO.
 #>
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'Output'),
+    [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'RYSNIPPETS/WindowsSetup'),
 
     [string]$Edition = 'Windows Server 2025 Standard (Desktop Experience)',
 
@@ -23,16 +23,20 @@ param(
     [ValidatePattern('^$|^[A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){4}$')]
     [string]$ProductKey,
 
-    [securestring]$AdministratorPassword,
-
     [switch]$EnableWinRM,
 
     [switch]$InstallOpenSSHServer,
 
     [switch]$BuildISO,
 
-    [string]$SourceISO
+    [string]$SourceISO,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if ($BuildISO -and -not $SourceISO) {
     throw '-SourceISO is required when -BuildISO is specified.'
@@ -48,25 +52,6 @@ $productKeyXml = if ($ProductKey) {
 }
 else {
     ''
-}
-
-$administratorPasswordXml = ''
-if ($AdministratorPassword) {
-    $plainTextPassword = [Net.NetworkCredential]::new('', $AdministratorPassword).Password
-    try {
-        $administratorPasswordXml = @"
-        <UserAccounts>
-          <AdministratorPassword>
-            <Value>$(& $escape $plainTextPassword)</Value>
-            <PlainText>true</PlainText>
-          </AdministratorPassword>
-        </UserAccounts>
-"@
-    }
-    finally {
-        $plainTextPassword = $null
-    }
-    Write-Warning 'The generated answer file contains the Administrator password in plaintext. Protect and delete it after setup.'
 }
 
 $firstLogonCommands = [Collections.Generic.List[string]]::new()
@@ -149,7 +134,6 @@ $unattendXml = @"
   </settings>
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      $administratorPasswordXml
       <OOBE><HideEULAPage>true</HideEULAPage><ProtectYourPC>1</ProtectYourPC></OOBE>
       $firstLogonXml
     </component>
@@ -158,11 +142,9 @@ $unattendXml = @"
 "@
 
 $unattendPath = Join-Path $OutputDirectory 'Autounattend.xml'
-if (-not $PSCmdlet.ShouldProcess($unattendPath, 'Write unattended setup answer file')) {
-    return
-}
-$null = New-Item -ItemType Directory -Path $OutputDirectory -Force
-$unattendXml | Set-Content -LiteralPath $unattendPath -Encoding utf8
+
+$null = New-Item -ItemType Directory -Path $OutputDirectory -Force -ErrorAction Stop
+$unattendXml | Set-Content -LiteralPath $unattendPath -Encoding utf8 -ErrorAction Stop
 
 if (-not $BuildISO) {
     Get-Item -LiteralPath $unattendPath
@@ -173,20 +155,16 @@ $oscdimg = Get-Command oscdimg.exe -ErrorAction Stop
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ('WindowsServerUnattend_{0}' -f [guid]::NewGuid())
 $mounted = $false
 try {
-    if (-not $PSCmdlet.ShouldProcess($SourceISO, 'Build bootable unattended Windows Server ISO')) {
-        return
-    }
-
-    $null = New-Item -ItemType Directory -Path $temporaryDirectory
+    $null = New-Item -ItemType Directory -Path $temporaryDirectory -ErrorAction Stop
     $image = Mount-DiskImage -ImagePath $SourceISO -PassThru -ErrorAction Stop
     $mounted = $true
-    $volume = $image | Get-Volume
+    $volume = $image | Get-Volume -ErrorAction Stop
     & "$env:SystemRoot\System32\robocopy.exe" "$($volume.DriveLetter):\" $temporaryDirectory /MIR /R:2 /W:1 | Out-Null
     if ($LASTEXITCODE -gt 7) {
         throw "robocopy.exe failed with exit code $LASTEXITCODE."
     }
 
-    Copy-Item -LiteralPath $unattendPath -Destination (Join-Path $temporaryDirectory 'Autounattend.xml') -Force
+    Set-Content -LiteralPath (Join-Path $temporaryDirectory 'Autounattend.xml') -Value $unattendXml -Encoding utf8 -Force -ErrorAction Stop
     $outputIso = Join-Path $OutputDirectory ("{0}-Unattended.iso" -f ($Edition -replace '[^A-Za-z0-9]+', '_'))
     $biosBoot = Join-Path $temporaryDirectory 'boot\etfsboot.com'
     $uefiBoot = Join-Path $temporaryDirectory 'efi\microsoft\boot\efisys.bin'

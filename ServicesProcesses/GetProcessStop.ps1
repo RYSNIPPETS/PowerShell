@@ -3,7 +3,7 @@
     Stops processes by name or process ID.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = 'Name')]
+[CmdletBinding(DefaultParameterSetName = 'Name')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Name')]
     [string[]]$Name,
@@ -11,8 +11,14 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Id')]
     [int[]]$Id,
 
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $processes = if ($PSCmdlet.ParameterSetName -eq 'Id') {
     Get-Process -Id $Id -ErrorAction Stop
@@ -22,7 +28,5 @@ else {
 }
 
 foreach ($process in $processes) {
-    if ($PSCmdlet.ShouldProcess("$($process.ProcessName) ($($process.Id))", 'Stop process')) {
-        $process | Stop-Process -Force:$Force
-    }
+    $process | Stop-Process -Force:$Force
 }

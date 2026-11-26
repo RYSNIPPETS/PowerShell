@@ -5,15 +5,21 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [ValidateSet('Kcc', 'Queue', 'ReplSummary', 'ShowBackup', 'ShowRepl', 'ShowUtdVec', 'SyncAll')]
     [string]$Operation = 'ReplSummary',
 
     [string]$DomainController = '*',
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $arguments = switch ($Operation) {
     'Kcc' { @('/kcc', $DomainController) }
@@ -26,17 +32,25 @@ $arguments = switch ($Operation) {
 }
 
 if ($Credential) {
-    $plainPassword = $Credential.GetNetworkCredential().Password
-    $arguments += "/u:$($Credential.UserName)", "/pw:$plainPassword"
-}
-
-try {
-    $isStateChanging = $Operation -in 'Kcc', 'SyncAll'
-    if (-not $isStateChanging -or $PSCmdlet.ShouldProcess($DomainController, "Run Repadmin $Operation")) {
-        & repadmin.exe @arguments
-        if ($LASTEXITCODE -ne 0) { throw "repadmin.exe failed with exit code $LASTEXITCODE." }
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Join-Path $env:SystemRoot 'System32\repadmin.exe'
+    $account = $Credential.GetNetworkCredential()
+    $startInfo.UserName = $account.UserName
+    if ($account.Domain) { $startInfo.Domain = $account.Domain }
+    $startInfo.Password = $Credential.Password
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        while ($null -ne ($line = $process.StandardOutput.ReadLine())) { $line }
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
     }
+    finally { $process.Dispose() }
 }
-finally {
-    $plainPassword = $null
+else {
+    & "$env:SystemRoot\System32\repadmin.exe" @arguments
+    $exitCode = $LASTEXITCODE
 }
+if ($exitCode -ne 0) { throw "repadmin.exe failed with exit code $exitCode." }

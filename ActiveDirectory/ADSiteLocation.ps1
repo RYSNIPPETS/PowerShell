@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Identity,
@@ -14,11 +14,16 @@ param(
     [AllowEmptyString()]
     [string]$Location,
 
-    [string]$Server
+    [string]$Server,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Identity = $Identity; Location = $Location }
 if ($Server) { $parameters.Server = $Server }
-if ($PSCmdlet.ShouldProcess($Identity, "Set site location to '$Location'")) {
-    Set-ADReplicationSite @parameters -PassThru
-}
+
+Set-ADReplicationSite @parameters -PassThru

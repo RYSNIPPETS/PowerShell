@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Identity,
@@ -15,12 +15,17 @@ param(
 
     [string]$Server,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Identity = $Identity; TargetPath = $TargetPath }
 if ($Server) { $parameters.Server = $Server }
 if ($Credential) { $parameters.Credential = $Credential }
-if ($PSCmdlet.ShouldProcess($Identity, "Move Active Directory object to '$TargetPath'")) {
-    Move-ADObject @parameters -PassThru
-}
+
+Move-ADObject @parameters -PassThru

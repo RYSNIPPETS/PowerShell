@@ -56,15 +56,14 @@
   .\CreateDNSAppLoadBal.ps1 -ZoneName contoso.com -RecordName web `
     -IPv4 10.0.10.10,10.0.10.11 -HealthProbe -ProbeType HTTP -ProbePort 443 -ProbePath /healthz
 
-  # Operate on a remote DNS server with what-if preview
-  .\CreateDNSAppLoadBal.ps1 -ZoneName contoso.com -RecordName app `
-    -IPv4 10.1.1.10,10.1.1.11 -DnsServer DNSSRV01 -WhatIf
 #>
 
 #Requires -Modules DnsServer
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
+    [switch]$AllowUpdateAny,
+
     [Parameter(Mandatory)] [string]   $ZoneName,
     [Parameter(Mandatory)] [string]   $RecordName,
     [string[]]                        $IPv4,
@@ -75,12 +74,18 @@ param(
 
     [switch]                          $HealthProbe,
     [ValidateSet('TCP', 'HTTP')] [string] $ProbeType = 'TCP',
-    [int]                             $ProbePort,
+    [ValidateRange(1, 65535)] [int] $ProbePort,
     [string]                          $ProbePath = '/',
-    [int]                             $TimeoutMs = 1500
+    [ValidateRange(1, 60000)] [int] $TimeoutMs = 1500,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 begin {
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     $ErrorActionPreference = 'Stop'
     if (-not $IPv4 -and -not $IPv6) {
         throw "Provide at least one address via -IPv4 and/or -IPv6."
@@ -119,9 +124,10 @@ begin {
 
     function Test-Http {
         param([string]$Address, [int]$Port, [string]$Path = '/', [int]$TimeoutMs = 1500)
+        $authority = [UriBuilder]::new('http', $Address, $Port).Uri.GetLeftPart([UriPartial]::Authority)
+        $normalizedPath = if ($Path.StartsWith('/')) { $Path } else { "/$Path" }
+        $uri = [uri]::new($authority + $normalizedPath)
         try {
-            $normalizedPath = if ($Path.StartsWith('/')) { $Path } else { "/$Path" }
-            $uri = [uri]::new(("http://{0}:{1}{2}" -f $Address, $Port, $normalizedPath))
             $h = [System.Net.Http.HttpClient]::new()
             $h.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMs)
             $resp = $h.GetAsync($uri).GetAwaiter().GetResult()
@@ -134,7 +140,19 @@ begin {
 
     function Test-Healthy {
         param([string[]]$Addresses, [ValidateSet('IPv4', 'IPv6')]$Family)
-        if (-not $HealthProbe -or -not $Addresses) { return , $Addresses }
+        $expectedFamily = if ($Family -eq 'IPv4') { 'InterNetwork' } else { 'InterNetworkV6' }
+        $Addresses = @(
+            foreach ($value in $Addresses) {
+                if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                $parsed = [ipaddress]::Parse($value.Trim())
+                if ($parsed.AddressFamily -ne $expectedFamily) { throw "Expected $Family address, received '$value'." }
+                $parsed.IPAddressToString
+            }
+        ) | Sort-Object -Unique
+        if (-not $HealthProbe -or -not $Addresses) {
+            $Addresses | Where-Object { $_ }
+            return
+        }
         $port = $ProbePort
         $healthy = New-Object System.Collections.Generic.List[string]
         foreach ($ip in $Addresses) {
@@ -142,7 +160,8 @@ begin {
             else { Test-Http -Address $ip -Port $port -Path $ProbePath -TimeoutMs $TimeoutMs }
             if ($ok) { $healthy.Add($ip) } else { Write-Warning "$Family backend failed probe: $ip" }
         }
-        , $healthy.ToArray()
+        if ($healthy.Count -eq 0) { throw "No $Family backends passed their health check." }
+        $healthy.ToArray()
     }
 
     # Fetch current records
@@ -155,6 +174,7 @@ begin {
 
     $desiredIPv4 = @(Test-Healthy -Addresses $IPv4 -Family 'IPv4')
     $desiredIPv6 = @(Test-Healthy -Addresses $IPv6 -Family 'IPv6')
+    if (-not $desiredIPv4 -and -not $desiredIPv6) { throw 'No backend addresses supplied.' }
 }
 
 process {
@@ -179,37 +199,29 @@ process {
 
     # Add new A
     foreach ($ip in $toAdd4) {
-        if ($PSCmdlet.ShouldProcess("$fqdn (A) -> $ip", 'Add record')) {
-            Add-DnsServerResourceRecordA -ComputerName $DnsServer -ZoneName $ZoneName -Name $RecordName `
-                -IPv4Address $ip -TimeToLive ([TimeSpan]::FromSeconds($TTL)) -AllowUpdateAny -CreatePtr:$false | Out-Null
-            Write-Host "Added A $fqdn -> $ip" -ForegroundColor Green
-        }
+        Add-DnsServerResourceRecordA -ComputerName $DnsServer -ZoneName $ZoneName -Name $RecordName `
+            -IPv4Address $ip -TimeToLive ([TimeSpan]::FromSeconds($TTL)) -AllowUpdateAny:$AllowUpdateAny -CreatePtr:$false | Out-Null
+        Write-Host "Added A $fqdn -> $ip" -ForegroundColor Green
     }
 
     # Add new AAAA
     foreach ($ip in $toAdd6) {
-        if ($PSCmdlet.ShouldProcess("$fqdn (AAAA) -> $ip", 'Add record')) {
-            Add-DnsServerResourceRecordAAAA -ComputerName $DnsServer -ZoneName $ZoneName -Name $RecordName `
-                -IPv6Address $ip -TimeToLive ([TimeSpan]::FromSeconds($TTL)) -AllowUpdateAny | Out-Null
-            Write-Host "Added AAAA $fqdn -> $ip" -ForegroundColor Green
-        }
+        Add-DnsServerResourceRecordAAAA -ComputerName $DnsServer -ZoneName $ZoneName -Name $RecordName `
+            -IPv6Address $ip -TimeToLive ([TimeSpan]::FromSeconds($TTL)) -AllowUpdateAny:$AllowUpdateAny | Out-Null
+        Write-Host "Added AAAA $fqdn -> $ip" -ForegroundColor Green
     }
 
     # Remove extras when replacing
     foreach ($ip in $toDrop4) {
-        if ($PSCmdlet.ShouldProcess("$fqdn (A) -> $ip", 'Remove record')) {
-            $rec = $currA | Where-Object { $_.RecordData.IPv4Address.IPAddressToString -eq $ip }
-            if ($rec) {
-                Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ZoneName -RRType A -Name $RecordName -RecordData $ip -Force | Out-Null
-                Write-Host "Removed A $fqdn -> $ip" -ForegroundColor Yellow
-            }
+        $rec = $currA | Where-Object { $_.RecordData.IPv4Address.IPAddressToString -eq $ip }
+        if ($rec) {
+            Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ZoneName -RRType A -Name $RecordName -RecordData $ip -Force | Out-Null
+            Write-Host "Removed A $fqdn -> $ip" -ForegroundColor Yellow
         }
     }
     foreach ($ip in $toDrop6) {
-        if ($PSCmdlet.ShouldProcess("$fqdn (AAAA) -> $ip", 'Remove record')) {
-            Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ZoneName -RRType AAAA -Name $RecordName -RecordData $ip -Force | Out-Null
-            Write-Host "Removed AAAA $fqdn -> $ip" -ForegroundColor Yellow
-        }
+        Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $ZoneName -RRType AAAA -Name $RecordName -RecordData $ip -Force | Out-Null
+        Write-Host "Removed AAAA $fqdn -> $ip" -ForegroundColor Yellow
     }
 
     # Summarize

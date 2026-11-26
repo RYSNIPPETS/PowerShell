@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
     [Alias('Name')]
@@ -23,10 +23,16 @@ param(
 
     [switch]$IncludePermanent,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 begin {
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     $families = if ($AddressFamily -eq 'Both') { @('IPv4', 'IPv6') } else { @($AddressFamily) }
     $results = [Collections.Generic.List[object]]::new()
 }
@@ -69,11 +75,6 @@ process {
                 $neighbors = $neighbors | Where-Object State -In 'Reachable', 'Stale', 'Delay', 'Probe', 'Unknown', 'Unreachable', 'Incomplete'
 
                 foreach ($neighbor in $neighbors | Sort-Object InterfaceIndex, IPAddress -Unique) {
-                    $target = '{0}: {1} ({2})' -f $computer, $neighbor.IPAddress, $neighbor.InterfaceAlias
-                    if (-not $PSCmdlet.ShouldProcess($target, 'Remove neighbor-cache entry')) {
-                        continue
-                    }
-
                     try {
                         $removeParameters = @{
                             InterfaceIndex = $neighbor.InterfaceIndex

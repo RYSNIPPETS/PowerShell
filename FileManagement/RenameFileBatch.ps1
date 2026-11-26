@@ -3,7 +3,7 @@
     Renames files in a directory to a sequential pattern.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })]
@@ -19,8 +19,14 @@ param(
     [ValidateRange(1, 12)]
     [int]$Padding = 4,
 
-    [string]$Filter = '*'
+    [string]$Filter = '*',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $files = @(Get-ChildItem -LiteralPath $Directory -Filter $Filter -File | Sort-Object Name)
 $renames = for ($index = 0; $index -lt $files.Count; $index++) {
@@ -35,9 +41,7 @@ foreach ($rename in $renames) {
 }
 
 foreach ($rename in $renames | Where-Object { $_.Source.Name -ne $_.NewName }) {
-    if ($PSCmdlet.ShouldProcess($rename.Source.FullName, "Rename to '$($rename.NewName)'")) {
-        Rename-Item -LiteralPath $rename.Source.FullName -NewName $rename.NewName -ErrorAction Stop
-    }
+    Rename-Item -LiteralPath $rename.Source.FullName -NewName $rename.NewName -ErrorAction Stop
 }
 
 $renames | Select-Object @{ Name = 'OldName'; Expression = { $_.Source.Name } }, NewName, Target

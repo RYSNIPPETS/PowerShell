@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$SqlExpressInstaller,
 
@@ -20,8 +20,14 @@ param(
 
     [switch]$InstallAdmt,
 
-    [switch]$InstallPasswordExportServer
+    [switch]$InstallPasswordExportServer,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $items = @(
     @{ Name = 'SQL Server Express'; Path = $SqlExpressInstaller; Install = $InstallSqlExpress; Arguments = @('/quiet') },
@@ -35,14 +41,12 @@ foreach ($item in $items) {
     if (-not $item.Install) { continue }
     if (-not $exists) { throw "Installer for '$($item.Name)' was not found at '$($item.Path)'." }
 
-    if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Install $($item.Name)")) {
-        $extension = [IO.Path]::GetExtension($item.Path)
-        $process = if ($extension -eq '.msi') {
-            Start-Process -FilePath msiexec.exe -ArgumentList (@('/i', "`"$($item.Path)`"") + $item.Arguments) -Wait -PassThru
-        }
-        else {
-            Start-Process -FilePath $item.Path -ArgumentList $item.Arguments -Wait -PassThru
-        }
-        if ($process.ExitCode -notin 0, 3010) { throw "$($item.Name) installer failed with exit code $($process.ExitCode)." }
+    $extension = [IO.Path]::GetExtension($item.Path)
+    $process = if ($extension -eq '.msi') {
+        Start-Process -FilePath msiexec.exe -ArgumentList (@('/i', "`"$($item.Path)`"") + $item.Arguments) -Wait -PassThru
     }
+    else {
+        Start-Process -FilePath $item.Path -ArgumentList $item.Arguments -Wait -PassThru
+    }
+    if ($process.ExitCode -notin 0, 3010) { throw "$($item.Name) installer failed with exit code $($process.ExitCode)." }
 }

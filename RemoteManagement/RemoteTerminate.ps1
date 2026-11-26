@@ -5,7 +5,7 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = 'WSMan')]
+[CmdletBinding(DefaultParameterSetName = 'WSMan')]
 param(
     [Parameter(Mandatory)]
     [string]$ProcessName,
@@ -28,19 +28,21 @@ param(
     [switch]$PassThru,
 
     [ValidateRange(1, 1024)]
-    [int]$ThrottleLimit = 32
+    [int]$ThrottleLimit = 32,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $targets = if ($PSCmdlet.ParameterSetName -eq 'SSH') { $HostName } else { $ComputerName }
 $sessions = [Collections.Generic.List[Management.Automation.Runspaces.PSSession]]::new()
 try {
     foreach ($target in $targets) {
-        if (-not $PSCmdlet.ShouldProcess($target, "Stop process '$ProcessName'")) {
-            continue
-        }
-
         $parameters = if ($PSCmdlet.ParameterSetName -eq 'SSH') {
-            @{ HostName = $target; UserName = $UserName }
+            @{ HostName = $target; UserName = $UserName; Options = @{ BatchMode = 'yes'; StrictHostKeyChecking = 'yes' } }
         }
         else {
             @{ ComputerName = $target }

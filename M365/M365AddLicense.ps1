@@ -5,8 +5,10 @@
 
 #Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement, Microsoft.Graph.Users.Actions
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param(
+[CmdletBinding()]
+param(    [string]$ClientId,
+    [string]$CertificateThumbprint,
+
     [Parameter(Mandatory)]
     [string]$UserId,
 
@@ -21,26 +23,39 @@ param(
 
     [switch]$UseDeviceCode,
 
-    [switch]$PassThru
+    [switch]$PassThru,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$connectParameters = @{ Scopes = @('User.ReadWrite.All', 'Directory.ReadWrite.All'); NoWelcome = $true }
-if ($TenantId) { $connectParameters.TenantId = $TenantId }
-if ($UseDeviceCode) { $connectParameters.UseDeviceCode = $true }
-Connect-MgGraph @connectParameters | Out-Null
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+if ($PassThru) { Import-Module Microsoft.Graph.Users -ErrorAction Stop }
+
+if ($UseDeviceCode) { throw 'Use a preauthenticated Graph context or an application certificate.' }
+$ownsConnection = $false
+if ($ClientId -or $CertificateThumbprint) {
+    if (-not ($TenantId -and $ClientId -and $CertificateThumbprint)) { throw 'Supply -TenantId, -ClientId and -CertificateThumbprint together.' }
+    Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint $CertificateThumbprint -NoWelcome -ErrorAction Stop | Out-Null
+    $ownsConnection = $true
+}
+else {
+    $context = Get-MgContext -ErrorAction Stop
+    if (-not $context -or ($TenantId -and $context.TenantId -ne $TenantId)) { throw 'Provide application certificate parameters or connect to the requested Graph tenant before calling this script.' }
+}
 
 try {
     $skuMatches = @(Get-MgSubscribedSku -All | Where-Object SkuPartNumber -EQ $SkuPartNumber)
     if ($skuMatches.Count -ne 1) { throw "Expected one subscribed SKU named '$SkuPartNumber'; found $($skuMatches.Count)." }
     $sku = $skuMatches[0]
 
-    if ($PSCmdlet.ShouldProcess($UserId, "$Action license '$SkuPartNumber'")) {
-        if ($Action -eq 'Add') {
-            Set-MgUserLicense -UserId $UserId -AddLicenses @(@{ SkuId = $sku.SkuId }) -RemoveLicenses @() | Out-Null
-        }
-        else {
-            Set-MgUserLicense -UserId $UserId -AddLicenses @() -RemoveLicenses @($sku.SkuId) | Out-Null
-        }
+    if ($Action -eq 'Add') {
+        Set-MgUserLicense -UserId $UserId -AddLicenses @(@{ SkuId = $sku.SkuId }) -RemoveLicenses @() -ErrorAction Stop | Out-Null
+    }
+    else {
+        Set-MgUserLicense -UserId $UserId -AddLicenses @() -RemoveLicenses @($sku.SkuId) -ErrorAction Stop | Out-Null
     }
 
     if ($PassThru) {
@@ -48,5 +63,5 @@ try {
     }
 }
 finally {
-    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    if ($ownsConnection) { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null }
 }

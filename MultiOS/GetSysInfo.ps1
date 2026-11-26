@@ -99,7 +99,7 @@ elseif ($IsLinux) {
         # lshw may require sudo privileges if not run as root
         if ($EUID -ne 0) {
             Write-Output "Note: Running 'lshw' may require sudo privileges. Attempting to run with sudo..."
-            sudo lshw -short
+            sudo -n lshw -short
         }
         else {
             lshw -short

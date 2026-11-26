@@ -5,7 +5,7 @@
     Sends email through Microsoft Graph using delegated or application authentication.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium', DefaultParameterSetName = 'Interactive')]
+[CmdletBinding(DefaultParameterSetName = 'ExistingContext')]
 param(
     [Parameter(Mandatory)]
     [string]$TenantId,
@@ -42,8 +42,14 @@ param(
 
     [bool]$SaveToSentItems = $true,
 
-    [switch]$UseDeviceCode
+    [switch]$UseDeviceCode,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $connectParameters = @{ TenantId = $TenantId; NoWelcome = $true }
 switch ($PSCmdlet.ParameterSetName) {
@@ -55,8 +61,9 @@ switch ($PSCmdlet.ParameterSetName) {
         $connectParameters.CertificateThumbprint = $CertificateThumbprint
     }
     default {
-        $connectParameters.Scopes = 'Mail.Send'
-        $connectParameters.UseDeviceCode = $UseDeviceCode
+        if ($UseDeviceCode) { throw 'Use application authentication or an existing Graph context.' }
+        $context = Get-MgContext -ErrorAction Stop
+        if (-not $context -or $context.TenantId -ne $TenantId) { throw 'Connect to the requested tenant or supply application credentials.' }
     }
 }
 
@@ -84,20 +91,18 @@ $attachments = @($AttachmentPath | ForEach-Object {
         }
     })
 
-Connect-MgGraph @connectParameters | Out-Null
+if ($PSCmdlet.ParameterSetName -ne 'ExistingContext') { Connect-MgGraph @connectParameters -ErrorAction Stop | Out-Null }
 try {
-    if ($PSCmdlet.ShouldProcess(($To.Address -join ', '), "Send Microsoft 365 email '$Subject'")) {
-        $message = @{
-            Subject      = $Subject
-            Body         = @{ ContentType = $BodyType; Content = $Body }
-            ToRecipients = $toRecipients
-        }
-        if ($ccRecipients.Count -gt 0) { $message.CcRecipients = $ccRecipients }
-        if ($attachments.Count -gt 0) { $message.Attachments = $attachments }
-
-        Send-MgUserMail -UserId $SenderUserPrincipalName -Message $message -SaveToSentItems:$SaveToSentItems
+    $message = @{
+        Subject      = $Subject
+        Body         = @{ ContentType = $BodyType; Content = $Body }
+        ToRecipients = $toRecipients
     }
+    if ($ccRecipients.Count -gt 0) { $message.CcRecipients = $ccRecipients }
+    if ($attachments.Count -gt 0) { $message.Attachments = $attachments }
+
+    Send-MgUserMail -UserId $SenderUserPrincipalName -Message $message -SaveToSentItems:$SaveToSentItems
 }
 finally {
-    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    if ($PSCmdlet.ParameterSetName -ne 'ExistingContext') { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null }
 }

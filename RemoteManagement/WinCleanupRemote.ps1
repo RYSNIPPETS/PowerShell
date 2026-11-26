@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(DefaultParameterSetName = 'Group', SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding(DefaultParameterSetName = 'Group')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Computer')]
     [string[]]$ComputerName,
@@ -19,8 +19,14 @@ param(
 
     [switch]$ClearRecycleBin,
 
-    [switch]$SkipWindowsTemp
+    [switch]$SkipWindowsTemp,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $computers = if ($PSCmdlet.ParameterSetName -eq 'Computer') {
     $ComputerName
@@ -37,12 +43,18 @@ $cleanupScript = {
     $removed = 0
     $errors = [Collections.Generic.List[string]]::new()
     function Remove-DirectoryContent {
-        [CmdletBinding(SupportsShouldProcess)]
-        param([string]$LiteralDirectory)
+        [CmdletBinding()]
+        param([string]$LiteralDirectory,
+
+            [Parameter(DontShow)]
+            [switch]$Confirm
+        )
+        $ConfirmPreference = 'None'
+        if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
         if (-not (Test-Path -LiteralPath $LiteralDirectory -PathType Container)) { return }
         $itemCount = 0
         foreach ($item in Get-ChildItem -LiteralPath $LiteralDirectory -Force -ErrorAction SilentlyContinue) {
-            if (-not $PSCmdlet.ShouldProcess($item.FullName, 'Remove')) { continue }
             try { Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop; $itemCount++ }
             catch { $errors.Add("$($item.FullName): $($_.Exception.Message)") }
         }
@@ -79,7 +91,6 @@ $cleanupScript = {
 }
 
 foreach ($computer in $computers | Sort-Object -Unique) {
-    if (-not $PSCmdlet.ShouldProcess($computer, 'Clean selected Windows data')) { continue }
     $parameters = @{ ComputerName = $computer; ErrorAction = 'Stop' }
     if ($Credential) { $parameters.Credential = $Credential }
     try {

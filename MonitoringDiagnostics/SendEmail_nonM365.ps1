@@ -6,7 +6,7 @@
     provider API or MailKit for new automation. This script exists for SMTP servers that still support it.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [mailaddress]$From,
@@ -35,8 +35,14 @@ param(
 
     [switch]$UseSsl,
 
-    [switch]$BodyAsHtml
+    [switch]$BodyAsHtml,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $message = [Net.Mail.MailMessage]::new()
 $client = [Net.Mail.SmtpClient]::new($SmtpServer, $Port)
@@ -60,9 +66,7 @@ try {
         $client.Credentials = $Credential.GetNetworkCredential()
     }
 
-    if ($PSCmdlet.ShouldProcess(($To -join ', '), "Send email '$Subject' through $SmtpServer`:$Port")) {
-        $client.Send($message)
-    }
+    $client.Send($message)
 }
 finally {
     $message.Dispose()

@@ -3,7 +3,7 @@
     Removes DNS records that reference a decommissioned domain controller.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ZoneName,
@@ -13,8 +13,14 @@ param(
 
     [ipaddress]$IPAddress,
 
-    [string]$ComputerName = $env:COMPUTERNAME
+    [string]$ComputerName = $env:COMPUTERNAME,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $normalizedName = $DomainControllerName.TrimEnd('.') + '.'
 $records = Get-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName
@@ -24,7 +30,5 @@ foreach ($record in $records) {
     $matchesAddress = $IPAddress -and $recordValues -contains $IPAddress.IPAddressToString
     if (-not ($matchesName -or $matchesAddress)) { continue }
 
-    if ($PSCmdlet.ShouldProcess("$($record.HostName).$ZoneName", 'Remove domain-controller DNS record')) {
-        Remove-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName -InputObject $record -Force
-    }
+    Remove-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName -InputObject $record -Force
 }

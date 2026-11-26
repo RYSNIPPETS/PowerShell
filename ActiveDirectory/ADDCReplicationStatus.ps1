@@ -5,19 +5,23 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$Target = (Get-ADDomain).DNSRoot,
 
-    [switch]$Synchronize
+    [switch]$Synchronize,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if ($Synchronize) {
     foreach ($controller in Get-ADDomainController -Filter *) {
-        if ($PSCmdlet.ShouldProcess($controller.HostName, 'Synchronize all directory partitions')) {
-            & repadmin.exe /syncall $controller.HostName /A /e /P | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning "Repadmin failed for '$($controller.HostName)' with exit code $LASTEXITCODE." }
-        }
+        & repadmin.exe /syncall $controller.HostName /A /e /P | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Repadmin failed for '$($controller.HostName)' with exit code $LASTEXITCODE." }
     }
 }
 

@@ -5,14 +5,18 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [AllowEmptyString()]
-    [string]$Description
+    [string]$Description,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Set computer description to '$Description'")) {
-    Get-CimInstance -ClassName Win32_OperatingSystem |
-        Set-CimInstance -Property @{ Description = $Description }
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Get-CimInstance -ClassName Win32_OperatingSystem |
+    Set-CimInstance -Property @{ Description = $Description }

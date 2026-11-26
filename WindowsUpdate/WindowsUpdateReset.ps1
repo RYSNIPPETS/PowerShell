@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [switch]$ClearBitsQueue,
 
@@ -18,8 +18,14 @@ param(
 
     [switch]$RemoveWsusClientIdentity,
 
-    [switch]$Scan
+    [switch]$Scan,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
@@ -33,7 +39,7 @@ try {
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if (-not $service) { continue }
         $serviceStates[$serviceName] = $service.Status
-        if ($service.Status -ne 'Stopped' -and $PSCmdlet.ShouldProcess($serviceName, 'Stop service')) {
+        if ($service.Status -ne 'Stopped') {
             Stop-Service -Name $serviceName -Force -ErrorAction Stop
         }
     }
@@ -43,7 +49,7 @@ try {
             throw 'The BitsTransfer module is required for -ClearBitsQueue.'
         }
         $jobs = @(Get-BitsTransfer -AllUsers -ErrorAction SilentlyContinue)
-        if ($jobs -and $PSCmdlet.ShouldProcess("$($jobs.Count) BITS job(s)", 'Remove')) {
+        if ($jobs) {
             $jobs | Remove-BitsTransfer -Confirm:$false
         }
     }
@@ -54,26 +60,23 @@ try {
         )) {
         if (-not (Test-Path -LiteralPath $cachePath)) { continue }
         $backupPath = "$cachePath.$timestamp.bak"
-        if ($PSCmdlet.ShouldProcess($cachePath, "Move to '$backupPath'")) {
-            Move-Item -LiteralPath $cachePath -Destination $backupPath -ErrorAction Stop
-            $backups.Add([pscustomobject]@{ OriginalPath = $cachePath; BackupPath = $backupPath })
-        }
+
+        Move-Item -LiteralPath $cachePath -Destination $backupPath -ErrorAction Stop
+        $backups.Add([pscustomobject]@{ OriginalPath = $cachePath; BackupPath = $backupPath })
     }
 
     if ($RemoveWsusClientIdentity) {
         $windowsUpdatePath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate'
         foreach ($valueName in 'AccountDomainSid', 'PingID', 'SusClientId', 'SusClientIdValidation') {
-            if ($PSCmdlet.ShouldProcess("$windowsUpdatePath :: $valueName", 'Remove WSUS client identity value')) {
-                Remove-ItemProperty -Path $windowsUpdatePath -Name $valueName -ErrorAction SilentlyContinue
-            }
+            Remove-ItemProperty -Path $windowsUpdatePath -Name $valueName -ErrorAction SilentlyContinue
         }
     }
 
-    if ($ResetWinsock -and $PSCmdlet.ShouldProcess('Winsock catalog', 'Reset')) {
+    if ($ResetWinsock) {
         & "$env:SystemRoot\System32\netsh.exe" winsock reset
         if ($LASTEXITCODE -ne 0) { throw "Winsock reset failed with exit code $LASTEXITCODE." }
     }
-    if ($ResetWinHttpProxy -and $PSCmdlet.ShouldProcess('WinHTTP proxy', 'Reset')) {
+    if ($ResetWinHttpProxy) {
         & "$env:SystemRoot\System32\netsh.exe" winhttp reset proxy
         if ($LASTEXITCODE -ne 0) { throw "WinHTTP proxy reset failed with exit code $LASTEXITCODE." }
     }
@@ -81,7 +84,7 @@ try {
 finally {
     foreach ($serviceName in $serviceNames) {
         if (-not $serviceStates.ContainsKey($serviceName)) { continue }
-        if ($serviceStates[$serviceName] -eq 'Running' -and $PSCmdlet.ShouldProcess($serviceName, 'Restore running state')) {
+        if ($serviceStates[$serviceName] -eq 'Running') {
             Start-Service -Name $serviceName -ErrorAction SilentlyContinue
         }
     }

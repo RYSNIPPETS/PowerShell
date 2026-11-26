@@ -3,7 +3,7 @@
     Sets the Windows time zone on one or more remote computers.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
     [Alias('Name')]
@@ -13,10 +13,16 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$TimeZoneId,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 begin {
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     if (-not $IsWindows) {
         throw 'This script requires Windows.'
     }
@@ -34,14 +40,11 @@ process {
     }
 
     foreach ($computer in $targets) {
-        if (-not $PSCmdlet.ShouldProcess($computer, "Set time zone to '$TimeZoneId'")) {
-            continue
-        }
-
         $parameters = @{ ComputerName = $computer; ErrorAction = 'Stop' }
         if ($Credential) { $parameters.Credential = $Credential }
+        $requestedTimeZone = $TimeZoneId
         Invoke-Command @parameters -ScriptBlock {
-            Set-TimeZone -Id $using:TimeZoneId -PassThru
+            Set-TimeZone -Id $using:requestedTimeZone -PassThru
         }
     }
 }

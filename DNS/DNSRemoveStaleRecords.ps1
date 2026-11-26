@@ -3,7 +3,7 @@
     Removes timestamped DNS records older than a specified age.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ZoneName,
@@ -14,16 +14,19 @@ param(
     [string]$RecordType = 'A',
 
     [ValidateRange(1, 3650)]
-    [int]$OlderThanDays = 14
+    [int]$OlderThanDays = 14,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $cutoff = (Get-Date).AddDays(-$OlderThanDays)
 $records = Get-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName -RRType $RecordType |
     Where-Object { $_.Timestamp -and $_.Timestamp -le $cutoff }
 
 foreach ($record in $records) {
-    $target = '{0}.{1} ({2})' -f $record.HostName, $ZoneName, $record.RecordType
-    if ($PSCmdlet.ShouldProcess($target, "Remove stale DNS record from $ComputerName")) {
-        Remove-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName -InputObject $record -Force
-    }
+    Remove-DnsServerResourceRecord -ComputerName $ComputerName -ZoneName $ZoneName -InputObject $record -Force
 }

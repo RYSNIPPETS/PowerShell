@@ -3,7 +3,7 @@
     Replaces characters in filenames in a directory.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Path = $PWD,
 
@@ -11,12 +11,17 @@ param(
 
     [string]$Replacement = '_',
 
-    [switch]$Recurse
+    [switch]$Recurse,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 foreach ($file in Get-ChildItem -LiteralPath $Path -File -Recurse:$Recurse | Where-Object Name -Match $Pattern) {
     $newName = $file.Name -replace $Pattern, $Replacement
-    if ($PSCmdlet.ShouldProcess($file.FullName, "Rename to '$newName'")) {
-        Rename-Item -LiteralPath $file.FullName -NewName $newName
-    }
+
+    Rename-Item -LiteralPath $file.FullName -NewName $newName
 }

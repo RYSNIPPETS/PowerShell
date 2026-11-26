@@ -5,6 +5,14 @@
 
 using namespace System.Management.Automation.Host
 
+[CmdletBinding()]
+param(
+    [ValidateSet('1', '2', '3', 'Q')]
+    [string]$Selection,
+
+    [switch]$Interactive
+)
+
 <# FUNCTIONS #>
 function Show-ChoiceMenu {
     [CmdletBinding()]
@@ -46,11 +54,14 @@ function Show-Menu {
     Write-Host "Q: Press 'Q' to quit."
 }
 
-
 <# EXECUTE MENU #>
 # Show-ChoiceMenu -Title 'Colors' -Question 'What is your favorite color?'
 
 <# EXECUTE INTERACTIVE MENU #>
+if (-not $Interactive) {
+    if ($Selection -and $Selection -ne 'Q') { "You chose option #$Selection" }
+    return
+}
 do {
     Show-Menu
     $selection = Read-Host "Please make a selection"

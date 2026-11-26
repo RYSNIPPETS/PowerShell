@@ -5,7 +5,7 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(DefaultParameterSetName = 'WinRM', SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding(DefaultParameterSetName = 'WinRM')]
 param(
     [Parameter(Mandatory)]
     [scriptblock]$ScriptBlock,
@@ -38,8 +38,14 @@ param(
     [object[]]$ArgumentList,
 
     [ValidateRange(1, 1024)]
-    [int]$ThrottleLimit = 32
+    [int]$ThrottleLimit = 32,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $createdSessions = [Collections.Generic.List[Management.Automation.Runspaces.PSSession]]::new()
 try {
@@ -57,7 +63,7 @@ try {
     }
     else {
         foreach ($hostTarget in $HostName) {
-            $parameters = @{ HostName = $hostTarget; UserName = $UserName; Port = $Port; ErrorAction = 'Stop' }
+            $parameters = @{ HostName = $hostTarget; UserName = $UserName; Port = $Port; ErrorAction = 'Stop'; Options = @{ BatchMode = 'yes'; StrictHostKeyChecking = 'yes' } }
             if ($KeyFilePath) { $parameters.KeyFilePath = $KeyFilePath }
             $newSession = New-PSSession @parameters
             $createdSessions.Add($newSession)
@@ -66,10 +72,8 @@ try {
     }
 
     if (-not $sessions) { throw 'No open PowerShell sessions are available.' }
-    $targetNames = $sessions.ComputerName -join ', '
-    if ($PSCmdlet.ShouldProcess($targetNames, 'Invoke caller-supplied script block')) {
-        Invoke-Command -Session $sessions -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList -ThrottleLimit $ThrottleLimit -ErrorAction Stop
-    }
+
+    Invoke-Command -Session $sessions -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList -ThrottleLimit $ThrottleLimit -ErrorAction Stop
 }
 finally {
     if ($createdSessions.Count -gt 0) {

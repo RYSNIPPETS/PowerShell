@@ -5,7 +5,7 @@
 
 #Requires -Modules Az.Dns
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ZoneName,
@@ -21,13 +21,18 @@ param(
     [mailaddress]$IncidentReportAddress,
 
     [ValidateRange(1, [int]::MaxValue)]
-    [int]$Ttl = 3600
+    [int]$Ttl = 3600,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $records = @($CertificateAuthority | ForEach-Object { New-AzDnsRecordConfig -CaaFlags 0 -CaaTag issue -CaaValue $_ })
 if ($IncidentReportAddress) {
     $records += New-AzDnsRecordConfig -CaaFlags 0 -CaaTag iodef -CaaValue "mailto:$($IncidentReportAddress.Address)"
 }
-if ($PSCmdlet.ShouldProcess("$Name.$ZoneName", 'Create or replace Azure DNS CAA record set')) {
-    New-AzDnsRecordSet -Name $Name -RecordType CAA -ZoneName $ZoneName -ResourceGroupName $ResourceGroupName -Ttl $Ttl -DnsRecords $records -Overwrite
-}
+
+New-AzDnsRecordSet -Name $Name -RecordType CAA -ZoneName $ZoneName -ResourceGroupName $ResourceGroupName -Ttl $Ttl -DnsRecords $records -Overwrite

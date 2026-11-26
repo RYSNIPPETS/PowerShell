@@ -5,14 +5,20 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$SearchBase,
 
     [string]$ExportPath,
 
-    [switch]$Unlock
+    [switch]$Unlock,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ UsersOnly = $true; LockedOut = $true; ErrorAction = 'Stop' }
 if ($SearchBase) { $parameters.SearchBase = $SearchBase }
@@ -30,9 +36,7 @@ if ($ExportPath) {
 
 if ($Unlock) {
     foreach ($user in $users) {
-        if ($PSCmdlet.ShouldProcess($user.SamAccountName, 'Unlock Active Directory account')) {
-            Unlock-ADAccount -Identity $user -ErrorAction Stop
-        }
+        Unlock-ADAccount -Identity $user -ErrorAction Stop
     }
 }
 

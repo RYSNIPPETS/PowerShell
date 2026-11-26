@@ -5,7 +5,7 @@
 
 #Requires -Version 7.4
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string[]]$Name = @(
         'ActiveDirectoryDsc',
@@ -29,14 +29,20 @@ param(
     [switch]$UpdateExisting,
 
     [ValidateSet('CurrentUser', 'AllUsers')]
-    [string]$Scope = 'CurrentUser'
+    [string]$Scope = 'CurrentUser',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not (Get-Command Install-PSResource -ErrorAction SilentlyContinue)) {
     throw 'Microsoft.PowerShell.PSResourceGet is required and is included with supported PowerShell 7 releases.'
 }
 
-if ($TrustPSGallery -and $PSCmdlet.ShouldProcess('PSGallery', 'Mark repository as trusted')) {
+if ($TrustPSGallery) {
     Set-PSResourceRepository -Name PSGallery -Trusted
 }
 
@@ -49,14 +55,11 @@ foreach ($moduleName in $Name | Sort-Object -Unique) {
         continue
     }
 
-    $action = if ($installed) { 'Update module' } else { 'Install module' }
-    if ($PSCmdlet.ShouldProcess($moduleName, $action)) {
-        if ($installed) {
-            Update-PSResource -Name $moduleName -Scope $Scope -Repository PSGallery -TrustRepository -ErrorAction Stop
-        }
-        else {
-            Install-PSResource -Name $moduleName -Scope $Scope -Repository PSGallery -TrustRepository -ErrorAction Stop
-        }
+    if ($installed) {
+        Update-PSResource -Name $moduleName -Scope $Scope -Repository PSGallery -TrustRepository -ErrorAction Stop
+    }
+    else {
+        Install-PSResource -Name $moduleName -Scope $Scope -Repository PSGallery -TrustRepository -ErrorAction Stop
     }
 }
 

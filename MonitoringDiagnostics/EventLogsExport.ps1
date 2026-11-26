@@ -3,7 +3,7 @@
     Exports a Windows event log from remote computers to a central directory.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
     [Alias('Name')]
@@ -16,38 +16,53 @@ param(
     [Parameter(Mandatory)]
     [string]$DestinationDirectory,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 process {
-    $null = New-Item -ItemType Directory -Path $DestinationDirectory -Force
-    foreach ($computer in $ComputerName) {
-        $fileName = '{0}_{1}_{2:yyyyMMdd_HHmmss}.evtx' -f $computer, $LogName, (Get-Date)
-        $remotePath = Join-Path $RemoteDirectory $fileName
-        if (-not $PSCmdlet.ShouldProcess($computer, "Export '$LogName' event log to '$DestinationDirectory'")) {
-            continue
-        }
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
+    foreach ($computer in $ComputerName) {
+        $safeLogName = $LogName -replace '[\\/:*?"<>|]', '_'
+        $fileName = '{0}_{1}_{2}.evtx' -f $computer, $safeLogName, [guid]::NewGuid().ToString('N')
+
+        $folder = New-Item -ItemType Directory -Path $DestinationDirectory -Force -ErrorAction Stop
+        $destination = Join-Path $folder.FullName $fileName
+
+        $remoteFolder = $RemoteDirectory
         $sessionParameters = @{ ComputerName = $computer }
         if ($Credential) {
             $sessionParameters.Credential = $Credential
         }
-        $session = New-PSSession @sessionParameters
+        $session = New-PSSession @sessionParameters -ErrorAction Stop
         try {
-            Invoke-Command -Session $session -ScriptBlock {
+            $archive = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
                 $eventLogName = $using:LogName
-                $directory = $using:RemoteDirectory
-                $path = $using:remotePath
-                $null = New-Item -ItemType Directory -Path $directory -Force
+                $directory = $using:remoteFolder
+                $path = Join-Path $directory $using:fileName
+                $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
                 & wevtutil.exe epl $eventLogName $path /ow:true
                 if ($LASTEXITCODE -ne 0) {
                     throw "wevtutil.exe failed with exit code $LASTEXITCODE."
                 }
+                Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop
             }
-            Copy-Item -FromSession $session -LiteralPath $remotePath -Destination (Join-Path $DestinationDirectory $fileName) -Force
-            Invoke-Command -Session $session -ScriptBlock {
-                Remove-Item -LiteralPath $using:remotePath -Force
+            $remotePath = $archive.Path
+            try {
+                Copy-Item -FromSession $session -LiteralPath $remotePath -Destination $destination -ErrorAction Stop
+                if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash -ne $archive.Hash) {
+                    throw "SHA256 mismatch for '$destination'."
+                }
             }
+            catch { throw "Export retained on $computer at '$remotePath'. $($_.Exception.Message)" }
+            Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
+                Remove-Item -LiteralPath $using:remotePath -Force -ErrorAction Stop
+            }
+            Get-Item -LiteralPath $destination
         }
         finally {
             Remove-PSSession -Session $session

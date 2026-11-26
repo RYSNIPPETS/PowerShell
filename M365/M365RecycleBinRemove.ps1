@@ -2,7 +2,7 @@
 .SYNOPSIS
   Empty a SharePoint or OneDrive recycle bin, or permanently delete Entra ID recycled objects.
 #>
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$SharePointSiteUrl,
     [string]$TenantAdminUrl,
@@ -10,8 +10,18 @@ param(
     [switch]$All,
     [switch]$PurgeDeletedUsers,
     [switch]$ForceDeviceCode,
-    [string]$PnPClientId
+    [string]$Tenant,
+    [string]$CertificateThumbprint,
+    [guid[]]$ItemId,
+    [switch]$InteractiveSelection,
+    [string]$PnPClientId,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $ErrorActionPreference = 'Stop'
 
@@ -31,7 +41,7 @@ function Get-PnPClientId {
         }
     }
 
-    throw 'PnP.PowerShell interactive login requires a ClientId. Pass -PnPClientId or set ENTRAID_APP_ID/ENTRAID_CLIENT_ID.'
+    throw 'PnP.PowerShell requires a ClientId. Pass -PnPClientId or set ENTRAID_APP_ID/ENTRAID_CLIENT_ID.'
 }
 
 function Connect-PnPSite {
@@ -42,6 +52,8 @@ function Connect-PnPSite {
         [Parameter(Mandatory)]
         [string]$ClientId,
 
+        [string]$Tenant,
+        [string]$Thumbprint,
         [switch]$DeviceLogin
     )
 
@@ -51,14 +63,16 @@ function Connect-PnPSite {
         ReturnConnection = $true
     }
 
-    if ($DeviceLogin) {
-        $connectParams.DeviceLogin = $true
+    if ($DeviceLogin) { throw 'Use application certificate authentication for unattended operation.' }
+    if (-not $Tenant -or -not $Thumbprint) { throw 'Supply -Tenant and -CertificateThumbprint.' }
+    $connectParams.Tenant = $Tenant
+    $connectParams.Thumbprint = $Thumbprint
+    $connection = Connect-PnPOnline @connectParams -ErrorAction Stop
+    $web = Get-PnPWeb -Connection $connection -Includes Url -ErrorAction Stop
+    if (-not $web.Url -or ([uri]$web.Url).AbsoluteUri.TrimEnd('/') -ne ([uri]$Url).AbsoluteUri.TrimEnd('/')) {
+        throw "The connection resolved to '$($web.Url)' instead of '$Url'."
     }
-    else {
-        $connectParams.Interactive = $true
-    }
-
-    Connect-PnPOnline @connectParams
+    $connection
 }
 
 function Select-RecycleBinItem {
@@ -69,25 +83,10 @@ function Select-RecycleBinItem {
 
     if (Get-Command -Name Out-GridView -ErrorAction SilentlyContinue) {
         $selectedRows = @(
-            $Items |
-                Select-Object ItemType, LeafName, DirName, DeletedByName, DeletedDate |
+            $Items | Select-Object Id, ItemType, LeafName, DirName, DeletedByName, DeletedDate |
                 Out-GridView -PassThru -Title 'Select recycle bin items to clear'
         )
-
-        if (-not $selectedRows) {
-            return @()
-        }
-
-        return @(
-            foreach ($row in $selectedRows) {
-                $Items | Where-Object {
-                    $_.ItemType -eq $row.ItemType -and
-                    $_.LeafName -eq $row.LeafName -and
-                    $_.DirName -eq $row.DirName -and
-                    $_.DeletedDate -eq $row.DeletedDate
-                } | Select-Object -First 1
-            }
-        )
+        return @($Items | Where-Object { $_.Id -in $selectedRows.Id })
     }
 
     $indexedItems = for ($index = 0; $index -lt $Items.Count; $index++) {
@@ -129,43 +128,32 @@ if ($PurgeDeletedUsers) {
         throw 'Microsoft Graph PowerShell is required. Install it before using -PurgeDeletedUsers.'
     }
 
-    $scopes = @('Directory.AccessAsUser.All', 'User.ReadWrite.All')
-    if ($ForceDeviceCode) {
-        Connect-MgGraph -Scopes $scopes -UseDeviceCode -NoWelcome | Out-Null
+    if ($ForceDeviceCode) { throw 'Supply a preauthenticated Microsoft Graph context for -PurgeDeletedUsers.' }
+    $context = Get-MgContext -ErrorAction Stop
+    if (-not $context) { throw 'Supply a preauthenticated Microsoft Graph context for -PurgeDeletedUsers.' }
+    if ($Tenant -and $context.TenantId -ne $Tenant) { throw 'The connected Graph tenant differs from -Tenant.' }
+    $deletedItems = @(Get-MgDirectoryDeletedItemAsUser -All -ErrorAction Stop)
+    $deletedUsers = @(
+        $deletedItems | Where-Object {
+            $_.AdditionalProperties.'@odata.type' -eq '#microsoft.graph.user'
+        }
+    )
+
+    if (-not $deletedUsers) {
+        $deletedUsers = $deletedItems
     }
-    else {
-        Connect-MgGraph -Scopes $scopes -NoWelcome | Out-Null
-    }
 
-    try {
-        $deletedItems = @(Get-MgDirectoryDeletedItemAsUser -All -ErrorAction SilentlyContinue)
-        $deletedUsers = @(
-            $deletedItems | Where-Object {
-                $_.AdditionalProperties.'@odata.type' -eq '#microsoft.graph.user'
-            }
-        )
-
-        if (-not $deletedUsers) {
-            $deletedUsers = $deletedItems
-        }
-
-        if (-not $deletedUsers) {
-            Write-Output 'No deleted users were found.'
-            return
-        }
-
-        foreach ($user in $deletedUsers) {
-            if ($PSCmdlet.ShouldProcess($user.Id, 'Hard delete recycled directory object')) {
-                Remove-MgDirectoryDeletedItem -DirectoryObjectId $user.Id -Confirm:$false
-            }
-        }
-
-        Write-Output 'Deleted user recycle bin purged.'
+    if (-not $deletedUsers) {
+        Write-Output 'No deleted users were found.'
         return
     }
-    finally {
-        Disconnect-MgGraph -ErrorAction SilentlyContinue
+
+    foreach ($user in $deletedUsers) {
+        Remove-MgDirectoryDeletedItem -DirectoryObjectId $user.Id -Confirm:$false
     }
+
+    Write-Output 'Deleted user recycle bin purged.'
+    return
 }
 
 if (-not (Get-Command Connect-PnPOnline -ErrorAction SilentlyContinue)) {
@@ -178,18 +166,19 @@ if ($TenantLevel) {
         throw '-TenantAdminUrl is required when using -TenantLevel.'
     }
 
-    $connection = Connect-PnPSite -Url $TenantAdminUrl -ClientId $resolvedClientId -DeviceLogin:$ForceDeviceCode
-    $items = @(Get-PnPTenantRecycleBinItem -RowLimit 5000 -Connection $connection)
+    $connection = Connect-PnPSite -Url $TenantAdminUrl -ClientId $resolvedClientId -DeviceLogin:$ForceDeviceCode -Tenant $Tenant -Thumbprint $CertificateThumbprint
+    $items = @(Get-PnPTenantRecycleBinItem -Connection $connection)
 
     if (-not $items) {
         Write-Output 'Tenant recycle bin is empty.'
         return
     }
 
-    if ($PSCmdlet.ShouldProcess('Tenant recycle bin', ('Clear {0} item(s)' -f $items.Count))) {
-        $items | Clear-PnPTenantRecycleBinItem -Force
-        Write-Output 'Tenant recycle bin cleared.'
+    foreach ($item in $items) {
+        Clear-PnPTenantRecycleBinItem -Url $item.Url -Connection $connection -Wait -Force -ErrorAction Stop
     }
+    if (Get-PnPTenantRecycleBinItem -Connection $connection -ErrorAction Stop) { throw 'Deleted sites remain in the tenant recycle bin.' }
+    Write-Output 'Tenant recycle bin cleared.'
 
     return
 }
@@ -198,31 +187,36 @@ if (-not $SharePointSiteUrl) {
     throw 'Provide -SharePointSiteUrl or use -TenantLevel.'
 }
 
-$siteConnection = Connect-PnPSite -Url $SharePointSiteUrl -ClientId $resolvedClientId -DeviceLogin:$ForceDeviceCode
+$siteConnection = Connect-PnPSite -Url $SharePointSiteUrl -ClientId $resolvedClientId -DeviceLogin:$ForceDeviceCode -Tenant $Tenant -Thumbprint $CertificateThumbprint
 
 if ($All) {
-    if ($PSCmdlet.ShouldProcess($SharePointSiteUrl, 'Clear first-stage and second-stage recycle bins')) {
-        Get-PnPRecycleBinItem -Connection $siteConnection -RowLimit 5000 -SecondStage:$false | Clear-PnPRecycleBinItem -Force
-        Get-PnPRecycleBinItem -Connection $siteConnection -RowLimit 5000 -SecondStage:$true | Clear-PnPRecycleBinItem -Force
-        Write-Output 'Site recycle bin cleared.'
-    }
+    Clear-PnPRecycleBinItem -All -Force -Connection $siteConnection -ErrorAction Stop
+    $remainingFirst = Get-PnPRecycleBinItem -FirstStage -RowLimit 1 -Connection $siteConnection -ErrorAction Stop
+    $remainingSecond = Get-PnPRecycleBinItem -SecondStage -RowLimit 1 -Connection $siteConnection -ErrorAction Stop
+    if ($remainingFirst -or $remainingSecond) { throw 'Items remain in the site recycle bin.' }
+    Write-Output 'Site recycle bin cleared.'
 
     return
 }
 
-$recycleBinItems = @(Get-PnPRecycleBinItem -Connection $siteConnection -RowLimit 5000)
+$recycleBinItems = @(Get-PnPRecycleBinItem -Connection $siteConnection)
 if (-not $recycleBinItems) {
     Write-Output 'Site recycle bin is empty.'
     return
 }
 
-$selectedItems = @(Select-RecycleBinItem -Items $recycleBinItems)
+if ($ItemId) {
+    $selectedItems = @($recycleBinItems | Where-Object { $_.Id -in $ItemId })
+    if (@($ItemId | Sort-Object -Unique).Count -ne $selectedItems.Count) { throw 'One or more requested IDs were not found in the selected site.' }
+}
+elseif ($InteractiveSelection) { $selectedItems = @(Select-RecycleBinItem -Items $recycleBinItems) }
+else { $recycleBinItems; return }
 if (-not $selectedItems) {
     Write-Output 'No recycle bin items were selected.'
     return
 }
 
-if ($PSCmdlet.ShouldProcess($SharePointSiteUrl, ('Clear {0} selected recycle bin item(s)' -f $selectedItems.Count))) {
-    $selectedItems | Clear-PnPRecycleBinItem -Force
-    Write-Output 'Selected recycle bin items cleared.'
+foreach ($item in $selectedItems) {
+    Clear-PnPRecycleBinItem -Identity $item.Id -Connection $siteConnection -Force -ErrorAction Stop
 }
+Write-Output 'Selected recycle bin items cleared.'

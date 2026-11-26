@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
@@ -18,8 +18,14 @@ param(
 
     [switch]$Silent,
 
-    [switch]$ForceAppShutdown
+    [switch]$ForceAppShutdown,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $uninstallRoots = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -30,7 +36,7 @@ $msiOffice = Get-ChildItem -Path $uninstallRoots -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -match '^Microsoft (Office|365)' -and $_.WindowsInstaller -eq 1 }
 
 $removeMsiElement = if ($msiOffice) { '  <RemoveMSI />' } else { '' }
-$displayLevel = if ($Silent) { 'None' } else { 'Full' }
+$displayLevel = if ($PSBoundParameters.ContainsKey('Silent') -and -not $Silent) { 'Full' } else { 'None' }
 $forceShutdown = if ($ForceAppShutdown) { 'TRUE' } else { 'FALSE' }
 $configuration = @"
 <Configuration>
@@ -40,10 +46,6 @@ $removeMsiElement
   <Property Name="FORCEAPPSHUTDOWN" Value="$forceShutdown" />
 </Configuration>
 "@
-
-if (-not $PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Remove Click-to-Run and detected MSI Office products')) {
-    return
-}
 
 New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
 $configurationPath = Join-Path $WorkDirectory 'RemoveAllOffice.xml'

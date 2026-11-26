@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$SearchBase,
@@ -21,8 +21,14 @@ param(
 
     [string]$ExportPath,
 
-    [switch]$Remove
+    [switch]$Remove,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not ($Inactive -or $Expired -or $Disabled)) {
     throw 'Specify at least one of -Inactive, -Expired, or -Disabled.'
@@ -55,9 +61,7 @@ if ($ExportPath) {
 }
 if ($Remove) {
     foreach ($user in $users) {
-        if ($PSCmdlet.ShouldProcess($user.DistinguishedName, 'Remove Active Directory user')) {
-            Remove-ADUser -Identity $user -Confirm:$false -ErrorAction Stop
-        }
+        Remove-ADUser -Identity $user -Confirm:$false -ErrorAction Stop
     }
 }
 

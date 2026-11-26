@@ -24,9 +24,10 @@ if ($IsWindows) {
 elseif ($IsLinux) {
     if (Get-Command resolvectl -CommandType Application -ErrorAction SilentlyContinue) {
         & resolvectl dns --no-pager | ForEach-Object {
-            if ($_ -match '^(?<Interface>\S+):\s*(?<Servers>.*)$') {
+            if ($_ -match '^(?:(?<Interface>Global)|Link\s+(?<Index>\d+)\s+\((?<Interface>[^)]+)\)):\s*(?<Servers>.*)$') {
+                $index = if ($Matches.Index) { [int]$Matches.Index }
                 foreach ($address in $Matches.Servers -split '\s+' | Where-Object { $_ }) {
-                    [pscustomobject]@{ Platform = 'Linux'; Interface = $Matches.Interface; InterfaceIndex = $null; AddressFamily = $null; ServerAddress = $address }
+                    [pscustomobject]@{ Platform = 'Linux'; Interface = $Matches.Interface; InterfaceIndex = $index; AddressFamily = $null; ServerAddress = $address }
                 }
             }
         }
@@ -42,18 +43,18 @@ elseif ($IsLinux) {
 elseif ($IsMacOS) {
     $resolver = $null
     $dnsServers = @(& /usr/sbin/scutil --dns 2>$null | ForEach-Object {
-        if ($_ -match '^resolver #(?<Number>\d+)') { $resolver = "resolver-$($Matches.Number)" }
-        elseif ($_ -match '^\s*nameserver\[\d+\]\s*:\s*(?<Address>\S+)') {
-            [pscustomobject]@{ Platform = 'macOS'; Interface = $resolver; InterfaceIndex = $null; AddressFamily = $null; ServerAddress = $Matches.Address }
-        }
-    })
+            if ($_ -match '^resolver #(?<Number>\d+)') { $resolver = "resolver-$($Matches.Number)" }
+            elseif ($_ -match '^\s*nameserver\[\d+\]\s*:\s*(?<Address>\S+)') {
+                [pscustomobject]@{ Platform = 'macOS'; Interface = $resolver; InterfaceIndex = $null; AddressFamily = $null; ServerAddress = $Matches.Address }
+            }
+        })
 
     if ($dnsServers.Count -eq 0 -and (Test-Path -LiteralPath /etc/resolv.conf)) {
         $dnsServers = @(Get-Content -LiteralPath /etc/resolv.conf | ForEach-Object {
-            if ($_ -match '^\s*nameserver\s+(?<Address>\S+)') {
-                [pscustomobject]@{ Platform = 'macOS'; Interface = 'resolv.conf'; InterfaceIndex = $null; AddressFamily = $null; ServerAddress = $Matches.Address }
-            }
-        })
+                if ($_ -match '^\s*nameserver\s+(?<Address>\S+)') {
+                    [pscustomobject]@{ Platform = 'macOS'; Interface = 'resolv.conf'; InterfaceIndex = $null; AddressFamily = $null; ServerAddress = $Matches.Address }
+                }
+            })
     }
 
     $dnsServers

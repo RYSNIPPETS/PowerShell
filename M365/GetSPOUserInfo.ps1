@@ -16,12 +16,15 @@ param(
 
     [string]$Tenant,
 
+    [string]$CertificateThumbprint,
+
     [string]$LoginName,
 
     [string]$OutputPath
 )
 
-$connectParameters = @{ Url = $SiteUrl.AbsoluteUri; Interactive = $true; ClientId = $ClientId }
+if (-not $Tenant -or -not $CertificateThumbprint) { throw 'Supply -Tenant and -CertificateThumbprint for unattended PnP authentication.' }
+$connectParameters = @{ Url = $SiteUrl.AbsoluteUri; Thumbprint = $CertificateThumbprint; ClientId = $ClientId }
 if ($Tenant) { $connectParameters.Tenant = $Tenant }
 Connect-PnPOnline @connectParameters
 

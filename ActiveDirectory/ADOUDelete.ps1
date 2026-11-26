@@ -5,20 +5,36 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Identity,
 
-    [switch]$Recursive
+    [switch]$Recursive,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$ou = Get-ADOrganizationalUnit -Identity $Identity -Properties ProtectedFromAccidentalDeletion
-if ($ou.ProtectedFromAccidentalDeletion) {
-    if ($PSCmdlet.ShouldProcess($ou.DistinguishedName, 'Disable accidental-deletion protection')) {
-        Set-ADOrganizationalUnit -Identity $ou -ProtectedFromAccidentalDeletion $false
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+$server = (Get-ADDomainController -Discover -Writable -ErrorAction Stop).HostName | Select-Object -First 1
+$ou = Get-ADOrganizationalUnit -Server $server -Identity $Identity -Properties ProtectedFromAccidentalDeletion -ErrorAction Stop
+
+$deleted = $false
+try {
+    if ($ou.ProtectedFromAccidentalDeletion) {
+        Set-ADOrganizationalUnit -Server $server -Identity $ou.ObjectGUID -ProtectedFromAccidentalDeletion $false -Confirm:$false -ErrorAction Stop
     }
+    Remove-ADOrganizationalUnit -Server $server -Identity $ou.ObjectGUID -Recursive:$Recursive -Confirm:$false -ErrorAction Stop
+    $deleted = $true
 }
-if ($PSCmdlet.ShouldProcess($ou.DistinguishedName, 'Delete organizational unit')) {
-    Remove-ADOrganizationalUnit -Identity $ou -Recursive:$Recursive -Confirm:$false
+finally {
+    if ($ou.ProtectedFromAccidentalDeletion -and -not $deleted) {
+        try {
+            Set-ADOrganizationalUnit -Server $server -Identity $ou.ObjectGUID -ProtectedFromAccidentalDeletion $true -Confirm:$false -ErrorAction Stop
+        }
+        catch { Write-Warning "Could not confirm protection was restored on '$($ou.ObjectGUID)' at '$server': $($_.Exception.Message)" }
+    }
 }

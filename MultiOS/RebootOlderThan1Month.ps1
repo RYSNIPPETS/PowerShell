@@ -5,7 +5,7 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [ValidateRange(1, 3650)]
     [int]$ThresholdDays = 30,
@@ -13,8 +13,14 @@ param(
     [ValidateRange(0, 1440)]
     [int]$DelayMinutes = 5,
 
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if ($IsWindows) {
     $lastBootTime = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
@@ -38,12 +44,6 @@ $report = [pscustomobject]@{
     RebootScheduled = $false
 }
 if ($uptime.TotalDays -le $ThresholdDays) {
-    $report
-    return
-}
-
-$target = [Environment]::MachineName
-if (-not $PSCmdlet.ShouldProcess($target, "Schedule reboot in $DelayMinutes minute(s)")) {
     $report
     return
 }

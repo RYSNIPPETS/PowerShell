@@ -5,13 +5,19 @@
 
 #Requires -Version 7.4
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string[]]$Name = @('*'),
 
     [ValidateSet('CurrentUser', 'AllUsers')]
-    [string]$Scope = 'CurrentUser'
+    [string]$Scope = 'CurrentUser',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not (Get-Command Get-InstalledPSResource -ErrorAction SilentlyContinue)) {
     throw 'Microsoft.PowerShell.PSResourceGet is required.'
@@ -22,11 +28,7 @@ foreach ($group in $installed | Group-Object Name) {
     $versions = @($group.Group | Sort-Object Version -Descending)
     if ($versions.Count -le 1) { continue }
 
-    $latest = $versions[0]
     foreach ($oldResource in $versions | Select-Object -Skip 1) {
-        $target = "$($oldResource.Name) $($oldResource.Version) ($Scope)"
-        if ($PSCmdlet.ShouldProcess($target, "Uninstall superseded version; keep $($latest.Version)")) {
-            Uninstall-PSResource -Name $oldResource.Name -Version $oldResource.Version -Scope $Scope -ErrorAction Stop
-        }
+        Uninstall-PSResource -Name $oldResource.Name -Version $oldResource.Version -Scope $Scope -ErrorAction Stop
     }
 }

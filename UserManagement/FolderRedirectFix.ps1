@@ -10,12 +10,18 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [string]$RedirectRoot
+    [string]$RedirectRoot,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) {
     throw 'This script requires Windows.'
@@ -46,19 +52,13 @@ $registryPaths = @(
 
 foreach ($registryPath in $registryPaths) {
     if (-not (Test-Path -LiteralPath $registryPath)) {
-        if ($PSCmdlet.ShouldProcess($registryPath, 'Create registry key')) {
-            New-Item -Path $registryPath -Force | Out-Null
-        }
-        else {
-            continue
-        }
+        New-Item -Path $registryPath -Force | Out-Null
     }
 
     foreach ($entry in $folders.GetEnumerator()) {
         $value = Join-Path -Path $redirectRoot -ChildPath $entry.Value
-        if ($PSCmdlet.ShouldProcess("$registryPath :: $($entry.Key)", "Set value to '$value'")) {
-            New-ItemProperty -Path $registryPath -Name $entry.Key -Value $value -PropertyType String -Force | Out-Null
-        }
+
+        New-ItemProperty -Path $registryPath -Name $entry.Key -Value $value -PropertyType String -Force | Out-Null
     }
 }
 

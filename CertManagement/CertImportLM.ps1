@@ -5,14 +5,18 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$FilePath,
 
-    [string]$CertStoreLocation = 'Cert:\LocalMachine\Root'
+    [string]$CertStoreLocation = 'Cert:\LocalMachine\Root',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($CertStoreLocation, "Import certificate '$FilePath'")) {
-    Import-Certificate -FilePath $FilePath -CertStoreLocation $CertStoreLocation
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Import-Certificate -FilePath $FilePath -CertStoreLocation $CertStoreLocation

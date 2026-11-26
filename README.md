@@ -40,14 +40,21 @@ Scripts are grouped by administrative purpose rather than only by operating syst
 
 Requirements vary by script:
 
-- The repository is maintained and validated against the current PowerShell 7 LTS release (PowerShell 7.6.3 at the time of this audit).
+- The scripts were checked with the PowerShell 7.7.0 parser and PSScriptAnalyzer 1.25.0. Runtime requirements depend on the script and target.
 - Windows administration scripts may require an elevated session and Windows-only modules, roles, or compatibility components.
-- Scripts in [`MultiOS/`](MultiOS/) use PowerShell 7 for Windows, Linux, and macOS support.
+- The MultiOS directory covers Windows, Linux, and macOS. Check individual script prerequisites. RebootFromTextFile requires a Windows controller with WSMan remoting.
+- Add2Domain, Add2Workgroup, Move2NewDomain, and ComputerTrustRelationship use local Windows PowerShell 5.1 commands when launched from PowerShell 7 on Windows.
 - Some scripts require Windows roles or tools such as Active Directory Domain Services, DNS Server, Hyper-V, RSAT, or SQL Server tooling.
 - Microsoft 365 scripts may require modules such as Microsoft Graph, ExchangeOnlineManagement, PnP.PowerShell, or PartnerCenter, along with the appropriate tenant permissions.
 - Certificate scripts for Linux or macOS may rely on native tools such as `openssl` or `security`.
 
 Review the comment-based help and source of an individual script before running it. Compatibility is documented per script where available.
+
+## Unattended use
+
+Invoke snippets with the call operator and supply required parameters from the calling script. Start scheduled PowerShell jobs with `pwsh -NoProfile -NonInteractive` so a missing mandatory argument causes a binding error. Run under an identity with the required permissions. Cloud scripts accept an authorized session or application credentials as documented in each script. Use `-Interactive` only when deliberately opening a supported selection interface.
+
+Scripts execute the selected operation directly. They no longer expose `-WhatIf`. The legacy `-Confirm` switch on previously confirmable operations is accepted and ignored. Action switches such as `-Delete` or `-Install` still select the operation. Errors remain available to the caller.
 
 ## Repository validation
 
@@ -113,7 +120,7 @@ Many scripts can change operating-system, directory-service, network, certificat
 1. Read the complete script and verify its parameters and prerequisites.
 2. Test it in a non-production environment.
 3. Use the least-privileged account appropriate for the task.
-4. Use `-WhatIf` when the script supports it.
+4. Supply required arguments, credentials, and explicit action switches before starting an unattended run.
 5. Back up relevant systems or configuration before destructive operations.
 
 Do not store passwords, access tokens, private keys, certificates, tenant identifiers, or other secrets in scripts or commit them to the repository.

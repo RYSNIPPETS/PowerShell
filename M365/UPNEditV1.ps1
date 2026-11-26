@@ -5,8 +5,10 @@
 
 #Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Users
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param(
+[CmdletBinding()]
+param(    [string]$ClientId,
+    [string]$CertificateThumbprint,
+
     [Parameter(Mandatory)]
     [string]$TenantId,
 
@@ -14,16 +16,30 @@ param(
     [string]$UserId,
 
     [Parameter(Mandatory)]
-    [string]$NewUserPrincipalName
+    [string]$NewUserPrincipalName,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-Connect-MgGraph -TenantId $TenantId -Scopes 'User.ReadWrite.All' -NoWelcome
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+$ownsConnection = $false
+if ($ClientId -or $CertificateThumbprint) {
+    if (-not ($TenantId -and $ClientId -and $CertificateThumbprint)) { throw 'Supply -TenantId, -ClientId and -CertificateThumbprint together.' }
+    Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint $CertificateThumbprint -NoWelcome -ErrorAction Stop | Out-Null
+    $ownsConnection = $true
+}
+else {
+    $context = Get-MgContext -ErrorAction Stop
+    if (-not $context -or ($TenantId -and $context.TenantId -ne $TenantId)) { throw 'Provide application certificate parameters or connect to the requested Graph tenant before calling this script.' }
+}
+
 try {
-    if ($PSCmdlet.ShouldProcess($UserId, "Change UPN to '$NewUserPrincipalName'")) {
-        Update-MgUser -UserId $UserId -UserPrincipalName $NewUserPrincipalName
-        Get-MgUser -UserId $NewUserPrincipalName -Property Id, DisplayName, UserPrincipalName
-    }
+    Update-MgUser -UserId $UserId -UserPrincipalName $NewUserPrincipalName
+    Get-MgUser -UserId $NewUserPrincipalName -Property Id, DisplayName, UserPrincipalName
 }
 finally {
-    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    if ($ownsConnection) { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null }
 }

@@ -5,10 +5,15 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(DontShow)]
+    [switch]$Confirm
+)
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Register DNS client records')) {
-    Register-DnsClient
-}
+
+Register-DnsClient

@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$ServiceName = 'OnePointDomainAgent',
 
@@ -13,22 +13,28 @@ param(
 
     [string]$InstallPath = 'C:\Windows\ADMT',
 
-    [string]$RegistryPath = 'HKLM:\Software\Microsoft\ADMT'
+    [string]$RegistryPath = 'HKLM:\Software\Microsoft\ADMT',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | ForEach-Object {
-    if ($PSCmdlet.ShouldProcess($_.Id, "Stop process '$ProcessName'")) { $_ | Stop-Process -Force }
+    $_ | Stop-Process -Force
 }
 
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($service -and $PSCmdlet.ShouldProcess($ServiceName, 'Stop and remove ADMT agent service')) {
+if ($service) {
     if ($service.Status -ne 'Stopped') { Stop-Service -Name $ServiceName -Force }
     & "$env:SystemRoot\System32\sc.exe" delete $ServiceName | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "sc.exe failed with exit code $LASTEXITCODE." }
 }
 
 foreach ($path in $RegistryPath, $InstallPath) {
-    if ((Test-Path -LiteralPath $path) -and $PSCmdlet.ShouldProcess($path, 'Remove ADMT remnant')) {
+    if ((Test-Path -LiteralPath $path)) {
         Remove-Item -LiteralPath $path -Recurse -Force
     }
 }

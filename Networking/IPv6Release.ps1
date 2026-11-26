@@ -5,17 +5,21 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [string[]]$InterfaceAlias
+    [string[]]$InterfaceAlias,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 $targets = if ($InterfaceAlias) { $InterfaceAlias } else { @('*') }
 foreach ($target in $targets) {
-    if ($PSCmdlet.ShouldProcess($target, 'Release IPv6 DHCP lease')) {
-        $arguments = if ($target -eq '*') { @('/release6') } else { @('/release6', $target) }
-        & "$env:SystemRoot\System32\ipconfig.exe" @arguments
-        if ($LASTEXITCODE -ne 0) { throw "ipconfig failed with exit code $LASTEXITCODE for '$target'." }
-    }
+    $arguments = if ($target -eq '*') { @('/release6') } else { @('/release6', $target) }
+    & "$env:SystemRoot\System32\ipconfig.exe" @arguments
+    if ($LASTEXITCODE -ne 0) { throw "ipconfig failed with exit code $LASTEXITCODE for '$target'." }
 }

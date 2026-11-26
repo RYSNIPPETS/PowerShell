@@ -3,7 +3,7 @@
     Lists expired certificates from macOS keychains.
 #>
 
-#Requires -Version 7.0
+#Requires -Version 7.1
 
 [CmdletBinding()]
 param(
@@ -15,7 +15,8 @@ param(
 if (-not $IsMacOS) { throw 'This script requires macOS.' }
 if (-not (Get-Command security -CommandType Application -ErrorAction SilentlyContinue)) { throw "'security' was not found." }
 
-$keychains = if ($Keychain) { $Keychain } else { @($null) }
+$keychains = $Keychain
+if (-not $keychains) { $keychains = @('') }
 foreach ($keychainPath in $keychains) {
     $arguments = @('find-certificate', '-a', '-p')
     if ($keychainPath) { $arguments += $keychainPath }

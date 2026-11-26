@@ -5,11 +5,15 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [string]$ForestName = (Get-ADForest).Name
+    [string]$ForestName = (Get-ADForest).Name,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($ForestName, 'Enable Active Directory Recycle Bin (irreversible)')) {
-    Enable-ADOptionalFeature -Identity 'Recycle Bin Feature' -Scope ForestOrConfigurationSet -Target $ForestName -Confirm:$false
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Enable-ADOptionalFeature -Identity 'Recycle Bin Feature' -Scope ForestOrConfigurationSet -Target $ForestName -Confirm:$false

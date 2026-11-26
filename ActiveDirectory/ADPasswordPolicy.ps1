@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$DomainName,
 
@@ -28,8 +28,14 @@ param(
 
     [bool]$ComplexityEnabled = $true,
 
-    [bool]$ReversibleEncryptionEnabled = $false
+    [bool]$ReversibleEncryptionEnabled = $false,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $identity = if ($DomainName) { $DomainName } else { (Get-ADDomain -ErrorAction Stop).DNSRoot }
 if ($MaxPasswordAge -lt $MinPasswordAge) {
@@ -53,7 +59,6 @@ $parameters = @{
     ErrorAction                 = 'Stop'
 }
 
-if ($PSCmdlet.ShouldProcess($identity, 'Set default domain password policy')) {
-    Set-ADDefaultDomainPasswordPolicy @parameters
-}
+Set-ADDefaultDomainPasswordPolicy @parameters
+
 Get-ADDefaultDomainPasswordPolicy -Identity $identity

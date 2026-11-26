@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Name,
@@ -14,12 +14,17 @@ param(
 
     [string]$Description,
 
-    [bool]$ProtectedFromAccidentalDeletion = $true
+    [bool]$ProtectedFromAccidentalDeletion = $true,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Name = $Name; ProtectedFromAccidentalDeletion = $ProtectedFromAccidentalDeletion }
 if ($Path) { $parameters.Path = $Path }
 if ($Description) { $parameters.Description = $Description }
-if ($PSCmdlet.ShouldProcess(($Path ?? (Get-ADDomain).DistinguishedName), "Create OU '$Name'")) {
-    New-ADOrganizationalUnit @parameters -PassThru
-}
+
+New-ADOrganizationalUnit @parameters -PassThru

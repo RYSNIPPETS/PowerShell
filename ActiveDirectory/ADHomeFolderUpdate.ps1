@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$HomeDirectoryRoot,
@@ -15,8 +15,14 @@ param(
 
     [string]$SearchBase,
 
-    [string[]]$Identity
+    [string[]]$Identity,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $users = if ($Identity) {
     $Identity | ForEach-Object { Get-ADUser -Identity $_ }
@@ -29,7 +35,6 @@ else {
 
 foreach ($user in $users) {
     $homeDirectory = Join-Path $HomeDirectoryRoot $user.SamAccountName
-    if ($PSCmdlet.ShouldProcess($user.SamAccountName, "Set home directory to '$homeDirectory'")) {
-        Set-ADUser -Identity $user -HomeDirectory $homeDirectory -HomeDrive $HomeDrive
-    }
+
+    Set-ADUser -Identity $user -HomeDirectory $homeDirectory -HomeDrive $HomeDrive
 }

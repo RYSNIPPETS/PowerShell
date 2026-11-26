@@ -15,6 +15,10 @@ param(
 
     [switch]$UseDeviceLogin,
 
+    [string]$Tenant,
+
+    [string]$CertificateThumbprint,
+
     [switch]$IncludeOneDriveSites,
 
     [switch]$IncludeSubwebs,
@@ -42,10 +46,10 @@ function Get-PnPClientId {
         }
     }
 
-    throw 'PnP.PowerShell interactive login now requires a ClientId. Pass -ClientId or set ENTRAID_APP_ID/ENTRAID_CLIENT_ID.'
+    throw 'PnP.PowerShell requires a ClientId. Pass -ClientId or set ENTRAID_APP_ID/ENTRAID_CLIENT_ID.'
 }
 
-function Connect-PnPInteractive {
+function Connect-PnPSite {
     param(
         [Parameter(Mandatory)]
         [string]$Url,
@@ -53,6 +57,8 @@ function Connect-PnPInteractive {
         [Parameter(Mandatory)]
         [string]$ResolvedClientId,
 
+        [string]$Tenant,
+        [string]$Thumbprint,
         [switch]$DeviceLogin
     )
 
@@ -62,18 +68,15 @@ function Connect-PnPInteractive {
         ReturnConnection = $true
     }
 
-    if ($DeviceLogin) {
-        $connectParams.DeviceLogin = $true
-    }
-    else {
-        $connectParams.Interactive = $true
-    }
+    if ($DeviceLogin -or -not $Tenant -or -not $Thumbprint) { throw 'Supply -Tenant and -CertificateThumbprint for unattended PnP authentication.' }
+    $connectParams.Tenant = $Tenant
+    $connectParams.Thumbprint = $Thumbprint
 
     Connect-PnPOnline @connectParams
 }
 
 $resolvedClientId = Get-PnPClientId -ExplicitClientId $ClientId
-$adminConnection = Connect-PnPInteractive -Url $TenantAdminUrl -ResolvedClientId $resolvedClientId -DeviceLogin:$UseDeviceLogin
+$adminConnection = Connect-PnPSite -Url $TenantAdminUrl -ResolvedClientId $resolvedClientId -DeviceLogin:$UseDeviceLogin -Tenant $Tenant -Thumbprint $CertificateThumbprint
 
 $tenantSiteParams = @{
     Connection = $adminConnection
@@ -109,7 +112,7 @@ foreach ($site in $sites) {
     }
 
     try {
-        $siteConnection = Connect-PnPInteractive -Url $site.Url -ResolvedClientId $resolvedClientId -DeviceLogin:$UseDeviceLogin
+        $siteConnection = Connect-PnPSite -Url $site.Url -ResolvedClientId $resolvedClientId -DeviceLogin:$UseDeviceLogin -Tenant $Tenant -Thumbprint $CertificateThumbprint
         $subwebs = @(Get-PnPSubWeb -Connection $siteConnection -Recurse)
         foreach ($web in $subwebs) {
             if ($web.Url -eq $site.Url) {

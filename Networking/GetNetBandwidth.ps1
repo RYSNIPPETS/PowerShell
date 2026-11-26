@@ -103,12 +103,12 @@ $sampleCount = [math]::Floor($DurationSeconds / $IntervalSeconds) + 1
 if ($sampleCount -lt 2) { $sampleCount = 2 }
 
 $allSamples = New-Object System.Collections.Generic.List[object]
-$first = Get-Stat -Names $names
+$first = @(Get-Stat -Names $names)
 $allSamples.AddRange($first)
 
 for ($i = 1; $i -lt $sampleCount; $i++) {
     Start-Sleep -Seconds $IntervalSeconds
-    $s = Get-Stat -Names $names
+    $s = @(Get-Stat -Names $names)
     $allSamples.AddRange($s)
 }
 
@@ -122,6 +122,7 @@ foreach ($name in $names) {
 
     $rxMbpsList = @()
     $txMbpsList = @()
+    $totalMbpsList = @()
 
     for ($i = 1; $i -lt $samps.Count; $i++) {
         $prev = $samps[$i - 1]
@@ -137,11 +138,12 @@ foreach ($name in $names) {
 
         $rxBps = [double]$rxDelta / $dt
         $txBps = [double]$txDelta / $dt
-        $rxMbps = ($rxBps * 8) / 1MB
-        $txMbps = ($txBps * 8) / 1MB
+        $rxMbps = ($rxBps * 8) / 1e6
+        $txMbps = ($txBps * 8) / 1e6
 
         $rxMbpsList += $rxMbps
         $txMbpsList += $txMbps
+        $totalMbpsList += $rxMbps + $txMbps
 
         if ($Timeline) {
             $timelineRows.Add([pscustomobject]@{
@@ -165,8 +167,8 @@ foreach ($name in $names) {
                 Tx_Avg_Mbps     = [math]::Round(($txMbpsList | Measure-Object -Average).Average, 3)
                 Rx_Peak_Mbps    = [math]::Round(($rxMbpsList | Measure-Object -Maximum).Maximum, 3)
                 Tx_Peak_Mbps    = [math]::Round(($txMbpsList | Measure-Object -Maximum).Maximum, 3)
-                Total_Avg_Mbps  = [math]::Round((($rxMbpsList + $txMbpsList) | Measure-Object -Average).Average, 3)
-                Total_Peak_Mbps = [math]::Round((($rxMbpsList + $txMbpsList) | Measure-Object -Maximum).Maximum, 3)
+                Total_Avg_Mbps  = [math]::Round(($totalMbpsList | Measure-Object -Average).Average, 3)
+                Total_Peak_Mbps = [math]::Round(($totalMbpsList | Measure-Object -Maximum).Maximum, 3)
             })
     }
 }
@@ -196,7 +198,7 @@ switch ($As) {
         $summaryRows | Sort-Object -Property Total_Avg_Mbps -Descending |
             Format-Table Name, Duration_s, Samples, Rx_Avg_Mbps, Tx_Avg_Mbps, Total_Avg_Mbps, Rx_Peak_Mbps, Tx_Peak_Mbps, Total_Peak_Mbps -Auto
         if ($Timeline) {
-            "`nTimeline:" | Out-Host
+            Write-Verbose 'Per-interval bandwidth timeline'
             $timelineRows | Format-Table Name, StartTime, EndTime, Interval_s, Rx_Mbps, Tx_Mbps, Total_Mbps -Auto
         }
     }

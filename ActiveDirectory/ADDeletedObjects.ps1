@@ -5,14 +5,20 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$Identity,
 
     [string]$SearchBase,
 
-    [switch]$Restore
+    [switch]$Restore,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ IncludeDeletedObjects = $true; Properties = '*' }
 
@@ -31,7 +37,5 @@ if (-not $Restore) {
 
 if (-not $Identity) { throw '-Identity is required when -Restore is specified.' }
 foreach ($object in $objects) {
-    if ($PSCmdlet.ShouldProcess($object.DistinguishedName, 'Restore deleted Active Directory object')) {
-        $object | Restore-ADObject -PassThru
-    }
+    $object | Restore-ADObject -PassThru
 }

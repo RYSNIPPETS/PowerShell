@@ -3,7 +3,7 @@
     Sends an SMTP alert for Windows fixed volumes below configured free-space thresholds.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$SmtpServer,
@@ -25,8 +25,14 @@ param(
     [double]$SystemDriveThresholdGB = 10,
 
     [ValidateRange(0, [double]::MaxValue)]
-    [double]$OtherDriveThresholdGB = 60
+    [double]$OtherDriveThresholdGB = 60,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
@@ -43,9 +49,6 @@ foreach ($volume in $volumes) {
 
     $subject = "Low disk space on $computerName $($volume.DeviceID)"
     $body = 'Drive {0} on {1} has {2:N2} GB free; threshold is {3:N2} GB.' -f $volume.DeviceID, $computerName, $freeGB, $threshold
-    if (-not $PSCmdlet.ShouldProcess(($To -join ', '), "Send alert '$subject'")) {
-        continue
-    }
 
     $message = [Net.Mail.MailMessage]::new()
     $client = [Net.Mail.SmtpClient]::new($SmtpServer, $SmtpPort)

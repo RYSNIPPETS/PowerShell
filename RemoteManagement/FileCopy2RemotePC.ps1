@@ -3,7 +3,7 @@
     Copies a file or directory to the administrative share on remote Windows computers.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ComputerListPath,
@@ -17,8 +17,14 @@ param(
 
     [switch]$Recurse,
 
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $computers = Get-Content -LiteralPath $ComputerListPath |
     ForEach-Object { $_.Trim() } |
@@ -29,7 +35,5 @@ foreach ($computer in $computers) {
     $relativePath = $DestinationPath.Substring(3)
     $remotePath = "\\$computer\$drive`$\$relativePath"
 
-    if ($PSCmdlet.ShouldProcess($remotePath, "Copy '$SourcePath'")) {
-        Copy-Item -LiteralPath $SourcePath -Destination $remotePath -Recurse:$Recurse -Force:$Force -ErrorAction Stop
-    }
+    Copy-Item -LiteralPath $SourcePath -Destination $remotePath -Recurse:$Recurse -Force:$Force -ErrorAction Stop
 }

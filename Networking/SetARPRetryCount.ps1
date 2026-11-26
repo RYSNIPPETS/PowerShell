@@ -3,7 +3,7 @@
     Sets the Windows ARP retry count on local or remote computers.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
     [Alias('Name', 'Server')]
@@ -12,15 +12,17 @@ param(
     [ValidateRange(0, 3)]
     [int]$RetryCount = 0,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 process {
-    foreach ($computer in $ComputerName) {
-        if (-not $PSCmdlet.ShouldProcess($computer, "Set ArpRetryCount to $RetryCount")) {
-            continue
-        }
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
+    foreach ($computer in $ComputerName) {
         $parameters = @{
             ComputerName = $computer
             ScriptBlock  = {

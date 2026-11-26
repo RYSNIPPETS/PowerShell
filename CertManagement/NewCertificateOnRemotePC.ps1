@@ -8,7 +8,7 @@ function New-RemoteRDPCertificate {
         .SYNOPSIS
             Creates a new self-signed certificate on a remote Windows computer and binds it to RDP.
     #>
-    [CmdletBinding(DefaultParameterSetName = 'ByComputerName', PositionalBinding = $false, SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    [CmdletBinding(DefaultParameterSetName = 'ByComputerName', PositionalBinding = $false)]
     [OutputType([psobject])]
     param (
         [Parameter(Mandatory = $true, ParameterSetName = 'ByComputerName', Position = 0)]
@@ -31,10 +31,16 @@ function New-RemoteRDPCertificate {
         [int]$KeyLength = 2048,
 
         [Parameter()]
-        [switch]$PassThru
+        [switch]$PassThru,
+
+        [Parameter(DontShow)]
+        [switch]$Confirm
     )
 
     begin {
+        $ConfirmPreference = 'None'
+        if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
         $createdSession = $false
         if ($PSBoundParameters.ContainsKey('ComputerName')) {
             $PSSession = New-PSSession -ComputerName $ComputerName
@@ -43,12 +49,6 @@ function New-RemoteRDPCertificate {
     }
 
     process {
-        $targetName = if ($ComputerName) { $ComputerName } else { $PSSession.ComputerName }
-
-        if (-not $PSCmdlet.ShouldProcess($targetName, 'Create and assign a new self-signed RDP certificate')) {
-            return
-        }
-
         $result = Invoke-Command -Session $PSSession -HideComputerName -ScriptBlock {
             $remoteValidUntil = $using:ValidUntil
             $remoteAlgorithm = $using:HashAlgorithm

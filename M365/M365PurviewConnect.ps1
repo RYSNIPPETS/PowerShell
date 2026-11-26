@@ -6,7 +6,10 @@
 #Requires -Modules ExchangeOnlineManagement
 
 [CmdletBinding()]
-param(
+param(    [string]$AppId,
+    [string]$CertificateThumbprint,
+    [string]$Organization,
+
     [switch]$Compliance,
 
     [switch]$ExchangeOnline,
@@ -18,6 +21,10 @@ param(
     [string]$UserPrincipalName
 )
 
+if ($UseDeviceAuthentication -or $UserPrincipalName -or -not ($AppId -and $CertificateThumbprint -and $Organization)) {
+    throw 'Supply -Organization, -AppId and -CertificateThumbprint for unattended authentication.'
+}
+
 if (-not ($Compliance -or $ExchangeOnline)) {
     throw 'Specify -Compliance, -ExchangeOnline, or both.'
 }
@@ -26,15 +33,11 @@ if ($SearchOnly -and -not $Compliance) {
 }
 
 if ($Compliance) {
-    $parameters = @{ EnableSearchOnlySession = $SearchOnly }
-    if ($UserPrincipalName) { $parameters.UserPrincipalName = $UserPrincipalName }
-    if ($UseDeviceAuthentication) { $parameters.Device = $true }
+    $parameters = @{ AppId = $AppId; CertificateThumbprint = $CertificateThumbprint; Organization = $Organization; EnableSearchOnlySession = $SearchOnly }
     Connect-IPPSSession @parameters | Out-Null
 }
 if ($ExchangeOnline) {
-    $parameters = @{ ShowBanner = $false }
-    if ($UserPrincipalName) { $parameters.UserPrincipalName = $UserPrincipalName }
-    if ($UseDeviceAuthentication) { $parameters.Device = $true }
+    $parameters = @{ AppId = $AppId; CertificateThumbprint = $CertificateThumbprint; Organization = $Organization; ShowBanner = $false }
     Connect-ExchangeOnline @parameters | Out-Null
 }
 

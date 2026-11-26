@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$DomainName,
@@ -23,12 +23,17 @@ param(
 
     [string]$SysvolPath = 'C:\Windows\SYSVOL',
 
-    [switch]$NoRebootOnCompletion
+    [switch]$NoRebootOnCompletion,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Install Active Directory Domain Services role')) {
-    Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools -ErrorAction Stop
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools -ErrorAction Stop
+
 Import-Module ADDSDeployment -ErrorAction Stop
 
 $parameters = @{
@@ -45,6 +50,4 @@ $parameters = @{
 if ($Credential) { $parameters.Credential = $Credential }
 if ($SiteName) { $parameters.SiteName = $SiteName }
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Promote to domain controller for '$DomainName'")) {
-    Install-ADDSDomainController @parameters
-}
+Install-ADDSDomainController @parameters

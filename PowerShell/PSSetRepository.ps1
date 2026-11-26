@@ -3,13 +3,17 @@
     Sets the trusted state of a PSResourceGet repository.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Name = 'PSGallery',
 
-    [bool]$Trusted = $true
+    [bool]$Trusted = $true,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Name, "Set repository trusted state to $Trusted")) {
-    Set-PSResourceRepository -Name $Name -Trusted:$Trusted -PassThru
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-PSResourceRepository -Name $Name -Trusted:$Trusted -PassThru

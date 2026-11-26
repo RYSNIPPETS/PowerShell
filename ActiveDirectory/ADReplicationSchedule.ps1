@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Identity = 'DEFAULTIPSITELINK',
 
@@ -13,8 +13,14 @@ param(
     [int]$StartHour = 8,
 
     [ValidateRange(0, 23)]
-    [int]$EndHour = 17
+    [int]$EndHour = 17,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $schedule = [DirectoryServices.ActiveDirectory.ActiveDirectorySchedule]::new()
 $schedule.SetDailySchedule(
@@ -23,6 +29,5 @@ $schedule.SetDailySchedule(
     [DirectoryServices.ActiveDirectory.HourOfDay]$EndHour,
     [DirectoryServices.ActiveDirectory.MinuteOfHour]::Zero
 )
-if ($PSCmdlet.ShouldProcess($Identity, "Set daily replication window to $StartHour`:00-$EndHour`:00")) {
-    Set-ADReplicationSiteLink -Identity $Identity -ReplicationSchedule $schedule -PassThru
-}
+
+Set-ADReplicationSiteLink -Identity $Identity -ReplicationSchedule $schedule -PassThru

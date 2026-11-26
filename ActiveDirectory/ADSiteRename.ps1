@@ -26,10 +26,10 @@ Returns the renamed site object after the change completes.
 .\ADSiteRename.ps1 -Identity "Default-First-Site-Name" -NewName "Paris"
 
 .EXAMPLE
-.\ADSiteRename.ps1 -Identity "CN=London,CN=Sites,CN=Configuration,DC=contoso,DC=com" -NewName "Berlin" -WhatIf
+.\ADSiteRename.ps1 -Identity "CN=London,CN=Sites,CN=Configuration,DC=contoso,DC=com" -NewName "Berlin"
 #>
 
-[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
     [string]$Identity,
@@ -45,8 +45,14 @@ param(
     [System.Management.Automation.PSCredential]$Credential,
 
     [Parameter()]
-    [switch]$PassThru
+    [switch]$PassThru,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $ErrorActionPreference = 'Stop'
 
@@ -78,13 +84,8 @@ catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
     Write-Verbose "The destination name '$NewName' is available."
 }
 
-$target = $site.DistinguishedName
-$action = "Rename Active Directory site '$($site.Name)' to '$NewName'"
+Rename-ADObject -Identity $site.DistinguishedName -NewName $NewName @adParams -Confirm:$false
 
-if ($PSCmdlet.ShouldProcess($target, $action)) {
-    Rename-ADObject -Identity $site.DistinguishedName -NewName $NewName @adParams -Confirm:$false
-
-    if ($PassThru) {
-        Get-ADReplicationSite -Identity $NewName @adParams
-    }
+if ($PassThru) {
+    Get-ADReplicationSite -Identity $NewName @adParams
 }

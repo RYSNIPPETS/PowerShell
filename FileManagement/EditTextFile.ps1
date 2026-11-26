@@ -3,7 +3,7 @@
     Replaces matching text in a text file.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Path,
@@ -15,8 +15,14 @@ param(
     [AllowEmptyString()]
     [string]$Replacement,
 
-    [switch]$SimpleMatch
+    [switch]$SimpleMatch,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $content = Get-Content -LiteralPath $Path -Raw
 $updated = if ($SimpleMatch) {
@@ -31,6 +37,4 @@ if ($content -ceq $updated) {
     return
 }
 
-if ($PSCmdlet.ShouldProcess($Path, "Replace text matching '$Pattern'")) {
-    Set-Content -LiteralPath $Path -Value $updated -Encoding utf8 -NoNewline
-}
+Set-Content -LiteralPath $Path -Value $updated -Encoding utf8 -NoNewline

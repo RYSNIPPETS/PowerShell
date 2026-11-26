@@ -5,14 +5,20 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string]$SearchBase,
 
     [string]$ExportPath,
 
-    [switch]$DisableNeverExpire
+    [switch]$DisableNeverExpire,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ PasswordNeverExpires = $true; UsersOnly = $true; ErrorAction = 'Stop' }
 if ($SearchBase) { $parameters.SearchBase = $SearchBase }
@@ -30,9 +36,7 @@ if ($ExportPath) {
 
 if ($DisableNeverExpire) {
     foreach ($user in $users) {
-        if ($PSCmdlet.ShouldProcess($user.SamAccountName, 'Disable Password Never Expires')) {
-            Set-ADUser -Identity $user -PasswordNeverExpires $false -ErrorAction Stop
-        }
+        Set-ADUser -Identity $user -PasswordNeverExpires $false -ErrorAction Stop
     }
 }
 

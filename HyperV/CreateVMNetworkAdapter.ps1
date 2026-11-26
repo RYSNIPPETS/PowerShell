@@ -3,7 +3,7 @@
     Adds a network adapter to a Hyper-V virtual machine.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$VMName,
@@ -16,8 +16,14 @@ param(
 
     [string]$ComputerName,
 
-    [switch]$Legacy
+    [switch]$Legacy,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{
     VMName     = $VMName
@@ -27,6 +33,4 @@ $parameters = @{
 }
 if ($ComputerName) { $parameters.ComputerName = $ComputerName }
 
-if ($PSCmdlet.ShouldProcess(($ComputerName ?? $env:COMPUTERNAME), "Add adapter '$Name' to VM '$VMName'")) {
-    Add-VMNetworkAdapter @parameters
-}
+Add-VMNetworkAdapter @parameters

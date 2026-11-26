@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$SourceUser,
@@ -13,8 +13,14 @@ param(
     [Parameter(Mandatory)]
     [string[]]$DestinationUser,
 
-    [string]$Server
+    [string]$Server,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{}
 if ($Server) { $parameters.Server = $Server }
@@ -25,8 +31,6 @@ foreach ($destinationName in $DestinationUser) {
     $destination = Get-ADUser -Identity $destinationName @parameters
     $currentGroupDns = @(Get-ADPrincipalGroupMembership -Identity $destination @parameters | Select-Object -ExpandProperty DistinguishedName)
     foreach ($group in $groups | Where-Object DistinguishedName -NotIn $currentGroupDns) {
-        if ($PSCmdlet.ShouldProcess($destination.SamAccountName, "Add to group '$($group.Name)'")) {
-            Add-ADGroupMember -Identity $group -Members $destination @parameters
-        }
+        Add-ADGroupMember -Identity $group -Members $destination @parameters
     }
 }

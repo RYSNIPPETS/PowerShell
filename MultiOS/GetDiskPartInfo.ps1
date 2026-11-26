@@ -276,7 +276,8 @@ function Get-LinuxDiskInfo {
     }
 
     try {
-        $jsonText = & $lsblk.Source -J -b -o NAME, PATH, MODEL, TYPE, SIZE, MOUNTPOINT, ROTA, RM, TRAN, SERIAL 2>$null | Out-String
+        $jsonText = & $lsblk.Source -J -b -o 'NAME,PATH,MODEL,TYPE,SIZE,MOUNTPOINT,ROTA,RM,TRAN,SERIAL' 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "lsblk failed with exit code $LASTEXITCODE." }
         if (-not $jsonText.Trim()) {
             Write-Warning 'lsblk did not return any data.'
             return

@@ -3,7 +3,7 @@
     Requests a certificate from an Active Directory Certificate Services enrollment endpoint.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Template,
@@ -15,12 +15,17 @@ param(
 
     [pscredential]$Credential,
 
-    [string]$CertStoreLocation = 'Cert:\LocalMachine\My'
+    [string]$CertStoreLocation = 'Cert:\LocalMachine\My',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Template = $Template; DnsName = $DnsName; CertStoreLocation = $CertStoreLocation }
 if ($Url) { $parameters.Url = $Url }
 if ($Credential) { $parameters.Credential = $Credential }
-if ($PSCmdlet.ShouldProcess(($DnsName -join ', '), "Request certificate using template '$Template'")) {
-    Get-Certificate @parameters
-}
+
+Get-Certificate @parameters

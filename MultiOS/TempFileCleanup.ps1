@@ -6,8 +6,14 @@
 # Cross-platform Temp Cleanup Script
 # Requires PowerShell 6+ (Core)
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(DontShow)]
+    [switch]$Confirm
+)
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 # This script cleans temporary directories on Windows, Linux, and macOS.
 # It requires elevated privileges (Administrator on Windows, root on Linux/macOS) to function correctly.
@@ -41,8 +47,14 @@ function Test-Elevated {
 }
 
 function Invoke-TempCleanup {
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-    param()
+    [CmdletBinding()]
+    param(
+        [Parameter(DontShow)]
+        [switch]$Confirm
+    )
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     # --- Cleanup logic starts here ---
     if ($IsWindows) {
         Write-Output "Detected Windows OS. Cleaning temporary directories..."
@@ -58,10 +70,10 @@ function Invoke-TempCleanup {
                 try {
                     # Recursively remove all files and subdirectories.
                     # The ErrorAction is set to SilentlyContinue to handle files that are in use.
-                    if ($PSCmdlet.ShouldProcess($path, 'Delete temporary directory contents')) {
-                        Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue |
-                            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-                    }
+
+                    Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue |
+                        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
                     Write-Output "Cleaned: $path"
                 }
                 catch {
@@ -86,10 +98,10 @@ function Invoke-TempCleanup {
                 try {
                     # Recursively remove all files and subdirectories.
                     # This command will skip the directory itself to avoid permissions issues.
-                    if ($PSCmdlet.ShouldProcess($path, 'Delete temporary directory contents')) {
-                        Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue |
-                            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-                    }
+
+                    Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue |
+                        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
                     Write-Output "Cleaned: $path"
                 }
                 catch {
@@ -108,8 +120,8 @@ function Invoke-TempCleanup {
 
 # Ensure we have elevated privileges before starting the cleanup.
 if (Test-Elevated) {
-    Invoke-TempCleanup -WhatIf:$WhatIfPreference -Confirm:$false
+    Invoke-TempCleanup -Confirm:$false
 }
 else {
-    Write-Host "Exiting script due to insufficient privileges."
+    throw "Temporary cleanup requires an elevated process."
 }

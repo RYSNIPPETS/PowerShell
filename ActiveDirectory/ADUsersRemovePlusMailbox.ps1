@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Identity,
@@ -16,40 +16,68 @@ param(
 
     [switch]$DisableMailbox,
 
-    [switch]$RemoveAdUser
+    [switch]$RemoveAdUser,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $user = Get-ADUser -Identity $Identity -ErrorAction Stop
 $targets = [Collections.Generic.List[string]]::new()
 
-foreach ($root in $UserDataRoot) {
-    $targets.Add((Join-Path -Path $root -ChildPath $user.SamAccountName))
-}
-if ($ProfileScriptRoot) {
-    $targets.Add((Join-Path -Path $ProfileScriptRoot -ChildPath "$($user.SamAccountName).xml"))
+function Get-DataDirectory {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ($item -isnot [IO.DirectoryInfo]) { throw "Expected a filesystem directory at '$Path'." }
+    $item.FullName
 }
 
-foreach ($target in $targets) {
-    if ((Test-Path -LiteralPath $target) -and $PSCmdlet.ShouldProcess($target, 'Remove user data')) {
-        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
-    }
+foreach ($root in $UserDataRoot) {
+    $targets.Add((Join-Path -Path (Get-DataDirectory $root) -ChildPath $user.SamAccountName))
+}
+if ($ProfileScriptRoot) {
+    $targets.Add((Join-Path -Path (Get-DataDirectory $ProfileScriptRoot) -ChildPath "$($user.SamAccountName).xml"))
 }
 
 if ($DisableMailbox) {
-    if (-not (Get-Command Disable-Mailbox -ErrorAction SilentlyContinue)) {
-        throw 'Disable-Mailbox is unavailable. Connect to on-premises Exchange PowerShell first.'
-    }
-    if ($PSCmdlet.ShouldProcess($user.SamAccountName, 'Disable on-premises Exchange mailbox')) {
-        Disable-Mailbox -Identity $user.SamAccountName -Confirm:$false -ErrorAction Stop
-    }
+    $null = Get-Command Disable-Mailbox -ErrorAction Stop
+    $mailbox = Get-Mailbox -Identity $user.DistinguishedName -ErrorAction Stop
+    if (-not $mailbox) { throw "No mailbox found for '$($user.DistinguishedName)'." }
+}
+if ($RemoveAdUser) { $null = Get-Command Remove-ADUser -ErrorAction Stop }
+$existingTargets = foreach ($target in $targets) {
+    if (Test-Path -LiteralPath $target -ErrorAction Stop) { $target }
 }
 
-if ($RemoveAdUser -and $PSCmdlet.ShouldProcess($user.DistinguishedName, 'Remove Active Directory user')) {
-    Remove-ADUser -Identity $user -Confirm:$false -ErrorAction Stop
+$completed = [Collections.Generic.List[string]]::new()
+try {
+    if ($DisableMailbox) {
+        Disable-Mailbox -Identity $user.DistinguishedName -Confirm:$false -ErrorAction Stop
+        $completed.Add("Disabled mailbox for $($user.DistinguishedName)")
+        Write-Information "Disabled mailbox for $($user.DistinguishedName)." -InformationAction Continue
+    }
+    foreach ($target in $existingTargets) {
+        Remove-Item -LiteralPath $target -Recurse -Force -Confirm:$false -ErrorAction Stop
+        $completed.Add("Removed $target")
+        Write-Information "Removed $target." -InformationAction Continue
+    }
+
+    if ($RemoveAdUser) {
+        Remove-ADUser -Identity $user -Confirm:$false -ErrorAction Stop
+        $completed.Add("Removed AD user $($user.DistinguishedName)")
+    }
+}
+catch {
+    $completedSteps = if ($completed.Count) { $completed -join ', ' } else { 'none' }
+    throw "Offboarding failed for '$Identity': $($_.Exception.Message) Completed steps: $completedSteps."
 }
 
 [pscustomobject]@{
     SamAccountName   = $user.SamAccountName
+    CompletedSteps   = $completed.ToArray()
     DataTargets      = $targets.ToArray()
     MailboxRequested = $DisableMailbox.IsPresent
     RemovalRequested = $RemoveAdUser.IsPresent

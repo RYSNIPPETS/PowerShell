@@ -5,13 +5,13 @@
     Lists or changes SharePoint Online site lock states.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = 'Browser')]
+[CmdletBinding(DefaultParameterSetName = 'Browser')]
 param(
     [Parameter(Mandatory)]
     [string]$TenantName,
 
     [ValidateSet('ListNoAccess', 'ListReadOnly', 'SetNoAccess', 'SetReadOnly', 'Unlock')]
-    [string]$Action,
+    [string]$Action = 'ListNoAccess',
 
     [string]$SiteUrl,
 
@@ -33,8 +33,14 @@ param(
     [Parameter(ParameterSetName = 'Certificate')]
     [securestring]$CertificatePassword,
 
-    [string]$AuthenticationUrl = 'https://login.microsoftonline.com/organizations'
+    [string]$AuthenticationUrl = 'https://login.microsoftonline.com/organizations',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $adminUrl = 'https://{0}-admin.sharepoint.com' -f $TenantName
 $connectParameters = @{ Url = $adminUrl }
@@ -59,18 +65,10 @@ switch ($PSCmdlet.ParameterSetName) {
         }
     }
     default {
-        $connectParameters.UseSystemBrowser = $true
+        throw 'Supply a credential or application certificate for unattended authentication.'
     }
 }
 Connect-SPOService @connectParameters
-
-if (-not $Action) {
-    $menu = [ordered]@{ '1' = 'ListNoAccess'; '2' = 'ListReadOnly'; '3' = 'SetNoAccess'; '4' = 'SetReadOnly'; '5' = 'Unlock' }
-    $menu.GetEnumerator() | ForEach-Object { '{0}. {1}' -f $_.Key, $_.Value }
-    $selection = Read-Host 'Choose an action [1-5]'
-    if (-not $menu.Contains($selection)) { throw 'Invalid menu selection.' }
-    $Action = $menu[$selection]
-}
 
 if ($Action -like 'List*') {
     $lockState = if ($Action -eq 'ListNoAccess') { 'NoAccess' } else { 'ReadOnly' }
@@ -86,7 +84,6 @@ $lockState = switch ($Action) {
     'SetReadOnly' { 'ReadOnly' }
     'Unlock' { 'Unlock' }
 }
-if ($PSCmdlet.ShouldProcess($SiteUrl, "Set SharePoint Online lock state to $lockState")) {
-    Set-SPOSite -Identity $SiteUrl -LockState $lockState
-    Get-SPOSite -Identity $SiteUrl | Select-Object Url, Title, Owner, LockState
-}
+
+Set-SPOSite -Identity $SiteUrl -LockState $lockState
+Get-SPOSite -Identity $SiteUrl | Select-Object Url, Title, Owner, LockState

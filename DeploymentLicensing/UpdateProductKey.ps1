@@ -5,16 +5,20 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Path,
 
     [Parameter(Mandatory)]
     [ValidatePattern('^[A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){4}$')]
-    [string]$ProductKey
+    [string]$ProductKey,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Path, 'Set Windows product key')) {
-    Set-WindowsProductKey -Path $Path -ProductKey $ProductKey
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-WindowsProductKey -Path $Path -ProductKey $ProductKey

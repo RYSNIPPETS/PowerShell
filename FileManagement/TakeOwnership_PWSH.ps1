@@ -5,14 +5,20 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateScript({ Test-Path -LiteralPath $_ })]
     [string]$Path,
 
-    [switch]$Recurse
+    [switch]$Recurse,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 $administratorSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
@@ -26,7 +32,6 @@ if ($Recurse) {
 $processed = 0
 $failed = 0
 foreach ($item in $items) {
-    if (-not $PSCmdlet.ShouldProcess($item.FullName, 'Set owner and grant Administrators full control')) { continue }
     try {
         $acl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
         $acl.SetOwner($administratorSid)

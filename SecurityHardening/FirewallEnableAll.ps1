@@ -5,12 +5,16 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [ValidateSet('Domain', 'Private', 'Public')]
-    [string[]]$FirewallProfile = @('Domain', 'Private', 'Public')
+    [string[]]$FirewallProfile = @('Domain', 'Private', 'Public'),
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess(($FirewallProfile -join ', '), 'Enable Windows Defender Firewall profiles')) {
-    Set-NetFirewallProfile -Profile $FirewallProfile -Enabled True
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-NetFirewallProfile -Profile $FirewallProfile -Enabled True

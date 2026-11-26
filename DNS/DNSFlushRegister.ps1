@@ -5,11 +5,16 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(DontShow)]
+    [switch]$Confirm
+)
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Clear the DNS client cache and register DNS records')) {
-    Clear-DnsClientCache
-    Register-DnsClient
-}
+
+Clear-DnsClientCache
+Register-DnsClient

@@ -3,9 +3,9 @@
     Reports and optionally deletes expired certificate files on Linux.
 #>
 
-#Requires -Version 7.0
+#Requires -Version 7.5
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string[]]$SearchPath,
@@ -14,11 +14,16 @@ param(
 
     [datetime]$AsOf = (Get-Date),
 
-    [switch]$Delete
+    [switch]$Delete,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 if (-not $IsLinux) { throw 'This script requires Linux.' }
-if (-not (Get-Command openssl -CommandType Application -ErrorAction SilentlyContinue)) { throw "'openssl' was not found." }
 
 foreach ($directory in $SearchPath) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
@@ -27,23 +32,36 @@ foreach ($directory in $SearchPath) {
     }
     foreach ($file in Get-ChildItem -LiteralPath $directory -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object Extension -In $Extension) {
-        $output = & openssl x509 -in $file.FullName -noout -enddate 2>$null
-        if ($LASTEXITCODE -ne 0 -or $output -notmatch '^notAfter=(?<Date>.+)$') { continue }
-
-        $notAfter = [datetimeoffset]::MinValue
-        if (-not [datetimeoffset]::TryParse(
-                $Matches.Date,
-                [Globalization.CultureInfo]::InvariantCulture,
-                [Globalization.DateTimeStyles]::AssumeUniversal,
-                [ref]$notAfter
-            )) { continue }
-        if ($notAfter.UtcDateTime -ge $AsOf.ToUniversalTime()) { continue }
+        try {
+            $bytes = [IO.File]::ReadAllBytes($file.FullName)
+            $certificate = [Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadCertificate($bytes)
+            try {
+                $notAfter = $certificate.NotAfter
+                $singleCertificate = if ($bytes[0] -eq 0x30) {
+                    $bytes.Length -eq $certificate.RawData.Length
+                }
+                else {
+                    $pem = [Text.Encoding]::ASCII.GetString($bytes)
+                    $pem -cmatch '\A\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----\s*\z'
+                }
+            }
+            finally { $certificate.Dispose() }
+        }
+        catch {
+            Write-Warning "Unable to read '$($file.FullName)': $($_.Exception.Message)"
+            continue
+        }
+        if (-not $singleCertificate) {
+            Write-Warning "Skipping '$($file.FullName)' because it contains additional data."
+            continue
+        }
+        if ($notAfter.ToUniversalTime() -ge $AsOf.ToUniversalTime()) { continue }
 
         $deleted = $false
-        if ($Delete -and $PSCmdlet.ShouldProcess($file.FullName, 'Delete expired certificate file')) {
+        if ($Delete) {
             Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
             $deleted = $true
         }
-        [pscustomobject]@{ FilePath = $file.FullName; NotAfter = $notAfter.LocalDateTime; Deleted = $deleted }
+        [pscustomobject]@{ FilePath = $file.FullName; NotAfter = $notAfter; Deleted = $deleted }
     }
 }

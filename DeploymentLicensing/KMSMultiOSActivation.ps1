@@ -3,8 +3,14 @@
     Manages kms multiple operating systems activation.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(DontShow)]
+    [switch]$Confirm
+)
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 #### Installs the appropriate KMS client key for the detected OS ####
 $OSversion = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
@@ -19,7 +25,6 @@ if (-not $key) {
 }
 $KMSservice = Get-CimInstance -Query "SELECT * FROM SoftwareLicensingService"
 Write-Debug 'Activating Windows.'
-if ($PSCmdlet.ShouldProcess($OSversion, 'Install KMS client key and refresh license status')) {
-    $null = Invoke-CimMethod -InputObject $KMSservice -MethodName 'InstallProductKey' -Arguments @{ ProductKey = $key }
-    $null = Invoke-CimMethod -InputObject $KMSservice -MethodName 'RefreshLicenseStatus'
-}
+
+$null = Invoke-CimMethod -InputObject $KMSservice -MethodName 'InstallProductKey' -Arguments @{ ProductKey = $key }
+$null = Invoke-CimMethod -InputObject $KMSservice -MethodName 'RefreshLicenseStatus'

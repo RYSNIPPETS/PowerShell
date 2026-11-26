@@ -5,24 +5,34 @@
 
 #Requires -Modules ExchangeOnlineManagement
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param(
+[CmdletBinding()]
+param(    [string]$AppId,
+    [string]$CertificateThumbprint,
+    [string]$Organization,
+
     [string]$UserPrincipalName,
 
     [switch]$UseDeviceAuthentication,
 
-    [switch]$EnsureEnabled
+    [switch]$EnsureEnabled,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$connectParameters = @{ ShowBanner = $false }
-if ($UserPrincipalName) { $connectParameters.UserPrincipalName = $UserPrincipalName }
-if ($UseDeviceAuthentication) { $connectParameters.Device = $true }
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+if ($UseDeviceAuthentication -or $UserPrincipalName -or -not ($AppId -and $CertificateThumbprint -and $Organization)) {
+    throw 'Supply -Organization, -AppId and -CertificateThumbprint for unattended authentication.'
+}
+
+$connectParameters = @{ AppId = $AppId; CertificateThumbprint = $CertificateThumbprint; Organization = $Organization; ShowBanner = $false }
 Connect-ExchangeOnline @connectParameters
 
 try {
     $organization = Get-OrganizationConfig
-    if ($EnsureEnabled -and $organization.AuditDisabled -and
-        $PSCmdlet.ShouldProcess($organization.Name, 'Enable organization-wide mailbox auditing')) {
+    if ($EnsureEnabled -and $organization.AuditDisabled) {
         Set-OrganizationConfig -AuditDisabled:$false
         $organization = Get-OrganizationConfig
     }

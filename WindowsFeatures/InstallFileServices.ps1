@@ -5,13 +5,17 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string[]]$Name = @('File-Services'),
 
-    [switch]$Restart
+    [switch]$Restart,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Install Windows feature(s): $($Name -join ', ')")) {
-    Install-WindowsFeature -Name $Name -IncludeAllSubFeature -IncludeManagementTools -Restart:$Restart
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Install-WindowsFeature -Name $Name -IncludeAllSubFeature -IncludeManagementTools -Restart:$Restart

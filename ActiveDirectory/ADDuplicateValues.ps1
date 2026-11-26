@@ -71,6 +71,6 @@ foreach ($domain in (Get-ADForest).Domains) {
     }
     if ($Credential) { $parameters.Credential = $Credential }
 
-    Get-ADObject @parameters |
-        Select-Object @{Name = 'Domain'; Expression = { $domain } }, $attributes.ToArray()
+    $properties = @(@{ Name = 'Domain'; Expression = { $domain } }) + $attributes.ToArray()
+    Get-ADObject @parameters | Select-Object -Property $properties
 }

@@ -5,10 +5,14 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(DontShow)]
+    [switch]$Confirm
+)
 
-if (-not $PSCmdlet.ShouldProcess([Environment]::MachineName, 'Clear local DNS resolver cache')) { return }
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if ($IsWindows) {
     Clear-DnsClientCache -ErrorAction Stop

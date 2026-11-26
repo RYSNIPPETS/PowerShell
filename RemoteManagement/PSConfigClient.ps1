@@ -5,7 +5,7 @@
     Manages powershell config client.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string[]]$TrustedHosts,
 
@@ -14,21 +14,24 @@ param(
     [string[]]$DelegateComputer,
 
     [ValidateSet('DoNotChange', 'RemoteSigned', 'AllSigned', 'Bypass')]
-    [string]$ExecutionPolicy = 'DoNotChange'
+    [string]$ExecutionPolicy = 'DoNotChange',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
-if ($PSCmdlet.ShouldProcess('WinRM', 'Enable PowerShell remoting on this client')) {
-    Enable-PSRemoting -Force -SkipNetworkProfileCheck
-}
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
 
 if ($TrustedHosts) {
     $trustedHostsValue = $TrustedHosts -join ','
-    if ($PSCmdlet.ShouldProcess('WSMan TrustedHosts', ('Set trusted hosts to {0}' -f $trustedHostsValue))) {
-        Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value $trustedHostsValue -Force
-        Restart-Service -Name WinRM
-    }
+
+    Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value $trustedHostsValue -Force
+    Restart-Service -Name WinRM
 }
 
 if ($EnableCredSSP) {
@@ -36,11 +39,9 @@ if ($EnableCredSSP) {
         throw 'Provide -DelegateComputer when using -EnableCredSSP.'
     }
 
-    if ($PSCmdlet.ShouldProcess('CredSSP client role', ('Enable CredSSP for {0}' -f ($DelegateComputer -join ', ')))) {
-        Enable-WSManCredSSP -Role Client -DelegateComputer $DelegateComputer -Force
-    }
+    Enable-WSManCredSSP -Role Client -DelegateComputer $DelegateComputer -Force
 }
 
-if ($ExecutionPolicy -ne 'DoNotChange' -and $PSCmdlet.ShouldProcess('Execution Policy', ('Set LocalMachine execution policy to {0}' -f $ExecutionPolicy))) {
+if ($ExecutionPolicy -ne 'DoNotChange') {
     Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy $ExecutionPolicy -Force
 }

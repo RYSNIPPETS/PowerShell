@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = 'Generate')]
+[CmdletBinding(DefaultParameterSetName = 'Generate')]
 param(
     [Parameter(Mandatory)]
     [string]$UserName,
@@ -17,10 +17,15 @@ param(
     [ValidateRange(12, 128)]
     [int]$GeneratedPasswordLength = 20,
 
-    [bool]$ChangePasswordAtLogon = $true
+    [bool]$ChangePasswordAtLogon = $true,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$plainTextPassword = $null
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 if ($PSCmdlet.ParameterSetName -eq 'Generate') {
     $characterSets = @(
         'ABCDEFGHJKLMNPQRSTUVWXYZ',
@@ -37,20 +42,20 @@ if ($PSCmdlet.ParameterSetName -eq 'Generate') {
         $characters.Add($allCharacters[[Security.Cryptography.RandomNumberGenerator]::GetInt32($allCharacters.Length)])
     }
     $shuffled = $characters | Sort-Object { [Security.Cryptography.RandomNumberGenerator]::GetInt32([int]::MaxValue) }
-    $plainTextPassword = -join $shuffled
     $NewPassword = [securestring]::new()
-    foreach ($character in $plainTextPassword.ToCharArray()) { $NewPassword.AppendChar($character) }
+    foreach ($character in $shuffled) { $NewPassword.AppendChar($character) }
     $NewPassword.MakeReadOnly()
 }
 
-if ($PSCmdlet.ShouldProcess($UserName, 'Reset Active Directory password')) {
-    Set-ADAccountPassword -Identity $UserName -NewPassword $NewPassword -Reset -ErrorAction Stop
-    Set-ADUser -Identity $UserName -ChangePasswordAtLogon $ChangePasswordAtLogon -ErrorAction Stop
+Set-ADAccountPassword -Identity $UserName -NewPassword $NewPassword -Reset -Confirm:$false -ErrorAction Stop
+$flagError = $null
+try { Set-ADUser -Identity $UserName -ChangePasswordAtLogon $ChangePasswordAtLogon -Confirm:$false -ErrorAction Stop }
+catch { $flagError = $_ }
 
-    [pscustomobject]@{
-        UserName          = $UserName
-        PasswordReset     = $true
-        ChangeAtNextLogon = $ChangePasswordAtLogon
-        GeneratedPassword = $plainTextPassword
-    }
+[pscustomobject]@{
+    UserName          = $UserName
+    PasswordReset     = $true
+    ChangeAtNextLogon = if (-not $flagError) { $ChangePasswordAtLogon }
+    GeneratedPassword = if ($PSCmdlet.ParameterSetName -eq 'Generate') { $NewPassword }
+    LogonFlagError    = if ($flagError) { $flagError.Exception.Message }
 }

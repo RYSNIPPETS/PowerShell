@@ -2,40 +2,44 @@
 
 <#
 .SYNOPSIS
-    Deletes user profile.
+    Lists remote profiles, deletes one computer/SID pair, or opens an optional selection window.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
+    [string]$ComputerName,
+    [string]$SID,
+    [switch]$Interactive,
     [string]$ComputersPath = (Join-Path -Path $PSScriptRoot -ChildPath 'Computers.txt'),
-    [string]$LogPath = (Join-Path -Path $PSScriptRoot -ChildPath 'UserProfileDelete.log')
+    [string]$LogPath = (Join-Path -Path $PSScriptRoot -ChildPath 'UserProfileDelete.log'),
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $isWindowsPlatform = ($IsWindows -eq $true) -or ($env:OS -eq 'Windows_NT')
 if (-not $isWindowsPlatform) {
     throw 'UserProfileDelete.ps1 is a Windows-only script.'
 }
 
-try {
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
+if ($SID -and -not $ComputerName) { throw 'Specify -ComputerName with -SID.' }
+if ($Interactive) {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
 }
-catch {
-    throw 'Unable to load System.Windows.Forms. Run this script on Windows with the desktop runtime available.'
-}
-
-if (-not (Test-Path -LiteralPath $ComputersPath)) {
-    throw ('Computer list not found: {0}' -f $ComputersPath)
-}
-
 $logDirectory = Split-Path -Path $LogPath -Parent
 if ($logDirectory -and -not (Test-Path -LiteralPath $logDirectory)) {
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 }
 
-$script:Computers = Get-Content -Path $ComputersPath |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-    Sort-Object -Unique
+$script:Computers = if ($ComputerName) { $ComputerName } else {
+    Get-Content -LiteralPath $ComputersPath -ErrorAction Stop |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Sort-Object -Unique
+}
 
 if (-not $script:Computers) {
     throw ('No computer names were found in {0}' -f $ComputersPath)
@@ -55,8 +59,8 @@ function Write-ProfileLog {
     Add-Content -Path $script:LogPath -Value ('{0:s} {1}' -f (Get-Date), $Message)
 }
 
-function Get-ProfileName {
-    $profileNames = [System.Collections.Generic.List[string]]::new()
+function Get-RemoteProfile {
+    $profileRows = [System.Collections.Generic.List[object]]::new()
 
     foreach ($computer in $script:Computers) {
         try {
@@ -64,7 +68,12 @@ function Get-ProfileName {
                 Where-Object { $_.LocalPath -like 'C:\Users\*' -and -not $_.Special }
 
             foreach ($userProfile in $profiles) {
-                $profileNames.Add([System.IO.Path]::GetFileName($userProfile.LocalPath))
+                $profileRows.Add([pscustomobject]@{
+                        Computer = $computer
+                        SID      = $userProfile.SID
+                        Path     = $userProfile.LocalPath
+                        Label    = "$computer  |  $($userProfile.LocalPath)  |  $($userProfile.SID)"
+                    })
             }
         }
         catch {
@@ -74,55 +83,50 @@ function Get-ProfileName {
         }
     }
 
-    $profileNames | Sort-Object -Unique
+    $profileRows | Sort-Object Computer, SID -Unique
 }
 
 function Remove-SelectedProfile {
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-    param()
-    $selectedUsers = @($script:ListBox.SelectedItems | ForEach-Object { $_.ToString() })
+    [CmdletBinding()]
+    param([object[]]$SelectedProfiles,
 
-    if (-not $selectedUsers) {
+        [Parameter(DontShow)]
+        [switch]$Confirm
+    )
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+    if (-not $selectedProfiles) {
         [System.Windows.Forms.MessageBox]::Show('Select one or more profiles to delete first.')
         return
     }
 
-    foreach ($userName in $selectedUsers) {
-        $profilePath = 'C:\Users\{0}' -f $userName
-
-        foreach ($computer in $script:Computers) {
-            try {
-                $userProfile = Get-CimInstance -ComputerName $computer -ClassName Win32_UserProfile -ErrorAction Stop |
-                    Where-Object LocalPath -EQ $profilePath
-
-                if (-not $userProfile) {
-                    $message = 'INFO: {0} profile does not exist on {1}' -f $profilePath, $computer
-                    Write-ProfileLog -Message $message
-                    continue
-                }
-
-                if (-not $PSCmdlet.ShouldProcess("$computer :: $profilePath", 'Delete user profile')) {
-                    continue
-                }
-                $userProfile | Remove-CimInstance -ErrorAction Stop
-                $message = '{0} has been deleted from {1}' -f $profilePath, $computer
-                Write-Output $message
-                Write-ProfileLog -Message $message
+    foreach ($row in $selectedProfiles) {
+        try {
+            $matchingProfile = Get-CimInstance -ComputerName $row.Computer -ClassName Win32_UserProfile -ErrorAction Stop |
+                Where-Object { $_.SID -eq $row.SID -and $_.LocalPath -eq $row.Path -and -not $_.Special -and -not $_.Loaded }
+            if (-not $matchingProfile) {
+                Write-ProfileLog "Skipped $($row.Label): profile changed, loaded or absent."
+                continue
             }
-            catch {
-                $message = 'ERROR: Failed to delete {0} on {1}: {2}' -f $profilePath, $computer, $_.Exception.Message
-                Write-Warning $message
-                Write-ProfileLog -Message $message
-            }
+
+            $matchingProfile | Remove-CimInstance -Confirm:$false -ErrorAction Stop
+            Write-ProfileLog "Deleted $($row.Label)"
+        }
+        catch {
+            $message = "Failed to delete $($row.Label): $($_.Exception.Message)"
+            Write-Warning $message
+            Write-ProfileLog $message
         }
     }
 
+    if (-not $Interactive) { return }
     $script:StatusLabel.Text = 'Deletion complete. Review the log for details.'
     [System.Windows.Forms.MessageBox]::Show(('Deletion complete. Review the log at {0}' -f $script:LogPath))
 }
 
 function Show-ProfileDeletionForm {
-    $profileNames = @(Get-ProfileName)
+    $profileRows = @(Get-RemoteProfile)
 
     $script:Form = New-Object System.Windows.Forms.Form
     $script:Form.Text = 'Delete Remote User Profiles'
@@ -133,15 +137,17 @@ function Show-ProfileDeletionForm {
     $titleLabel = New-Object System.Windows.Forms.Label
     $titleLabel.Location = New-Object System.Drawing.Point(10, 10)
     $titleLabel.Size = New-Object System.Drawing.Size(390, 20)
-    $titleLabel.Text = 'Select one or more profile folders to remove from the listed computers:'
+    $titleLabel.Text = 'Select the computer and profile to delete.'
     $script:Form.Controls.Add($titleLabel)
 
     $script:ListBox = New-Object System.Windows.Forms.ListBox
     $script:ListBox.Location = New-Object System.Drawing.Point(10, 35)
     $script:ListBox.Size = New-Object System.Drawing.Size(390, 220)
     $script:ListBox.SelectionMode = 'MultiExtended'
-    foreach ($profileName in $profileNames) {
-        [void]$script:ListBox.Items.Add($profileName)
+    $script:ListBox.DisplayMember = 'Label'
+    $script:ListBox.HorizontalScrollbar = $true
+    foreach ($row in $profileRows) {
+        [void]$script:ListBox.Items.Add($row)
     }
     $script:Form.Controls.Add($script:ListBox)
 
@@ -149,7 +155,7 @@ function Show-ProfileDeletionForm {
     $deleteButton.Location = New-Object System.Drawing.Point(100, 295)
     $deleteButton.Size = New-Object System.Drawing.Size(95, 28)
     $deleteButton.Text = 'Delete Profile'
-    $deleteButton.Add_Click({ Remove-SelectedProfile -WhatIf:$WhatIfPreference -Confirm:$false })
+    $deleteButton.Add_Click({ Remove-SelectedProfile -SelectedProfiles @($script:ListBox.SelectedItems) })
     $script:Form.Controls.Add($deleteButton)
 
     $logButton = New-Object System.Windows.Forms.Button
@@ -179,4 +185,10 @@ function Show-ProfileDeletionForm {
     [void]$script:Form.ShowDialog()
 }
 
-Show-ProfileDeletionForm
+if ($Interactive) { Show-ProfileDeletionForm }
+elseif ($SID) {
+    $row = Get-RemoteProfile | Where-Object SID -EQ $SID
+    if (-not $row) { throw "Profile '$SID' was not found on '$ComputerName'." }
+    Remove-SelectedProfile -SelectedProfiles @($row)
+}
+else { Get-RemoteProfile }

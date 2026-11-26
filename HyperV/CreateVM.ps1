@@ -3,7 +3,7 @@
     Creates a generation 2 Hyper-V virtual machine with a new VHDX.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Name,
@@ -23,8 +23,14 @@ param(
     [Parameter(Mandatory)]
     [string]$SwitchName,
 
-    [string]$ComputerName
+    [string]$ComputerName,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{
     Name               = $Name
@@ -38,6 +44,4 @@ $parameters = @{
 }
 if ($ComputerName) { $parameters.ComputerName = $ComputerName }
 
-if ($PSCmdlet.ShouldProcess(($ComputerName ?? $env:COMPUTERNAME), "Create Hyper-V VM '$Name'")) {
-    New-VM @parameters
-}
+New-VM @parameters

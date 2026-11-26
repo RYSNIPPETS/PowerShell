@@ -5,12 +5,16 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string]$Identity
+    [string]$Identity,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Identity, 'Delete Active Directory replication subnet')) {
-    Remove-ADReplicationSubnet -Identity $Identity -Confirm:$false
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Remove-ADReplicationSubnet -Identity $Identity -Confirm:$false

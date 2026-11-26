@@ -3,7 +3,7 @@
     Sets the Windows computer description on a remote computer.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string[]]$ComputerName,
@@ -12,14 +12,16 @@ param(
     [AllowEmptyString()]
     [string]$Description,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-foreach ($computer in $ComputerName) {
-    if (-not $PSCmdlet.ShouldProcess($computer, "Set computer description to '$Description'")) {
-        continue
-    }
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
+foreach ($computer in $ComputerName) {
     $parameters = @{
         ComputerName = $computer
         ScriptBlock  = {

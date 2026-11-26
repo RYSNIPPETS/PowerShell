@@ -6,7 +6,7 @@
 #Requires -RunAsAdministrator
 #Requires -Modules Hyper-V
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
@@ -33,8 +33,14 @@ param(
 
     [switch]$AutomaticCheckpoints,
 
-    [switch]$ReuseExistingVhd
+    [switch]$ReuseExistingVhd,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows with the Hyper-V role.' }
 if (Get-VM -Name $Name -ErrorAction SilentlyContinue) { throw "A VM named '$Name' already exists." }
@@ -46,7 +52,6 @@ $diskPath = Join-Path $VhdDirectory "$Name.vhdx"
 if ((Test-Path -LiteralPath $diskPath) -and -not $ReuseExistingVhd) {
     throw "Virtual disk '$diskPath' already exists. Use -ReuseExistingVhd only when reuse is intentional."
 }
-if (-not $PSCmdlet.ShouldProcess($Name, 'Create Hyper-V virtual machine')) { return }
 
 New-Item -ItemType Directory -Path $VhdDirectory -Force | Out-Null
 if (-not (Test-Path -LiteralPath $diskPath)) {

@@ -36,9 +36,6 @@
   # From CSV on local DNS server
   .\CreateDNSAppLoadBalGen.ps1 -Csv .\records.csv
 
-  # From JSON, target remote DNS and preview with -WhatIf
-  .\CreateDNSAppLoadBalGen.ps1 -Json .\records.json -DnsServer DNSSRV01 -WhatIf
-
   # From CSV, force replace and enable health checks (overrides per-record flags)
   .\CreateDNSAppLoadBalGen.ps1 -Csv .\records.csv -ReplaceExisting -HealthProbe -ProbeType TCP -ProbePort 443
 
@@ -56,8 +53,10 @@ contoso.com,web,10.0.3.10;10.0.3.11,,30,FALSE,TRUE,TCP,443,
 
 #Requires -Modules DnsServer
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
+    [switch]$AllowUpdateAny,
+
     [Parameter(ParameterSetName = 'CSV', Mandatory)] [string] $Csv,
     [Parameter(ParameterSetName = 'JSON', Mandatory)] [string] $Json,
 
@@ -68,14 +67,20 @@ param(
     [switch] $ReplaceExisting,
     [switch] $HealthProbe,
     [ValidateSet('TCP', 'HTTP')] [string] $ProbeType,
-    [Nullable[int]] $ProbePort,
-    [string] $ProbePath = '/',
+    [ValidateRange(1, 65535)] [Nullable[int]] $ProbePort,
+    [string] $ProbePath,
 
     # Stop processing after the first error
-    [switch] $StopOnError
+    [switch] $StopOnError,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 begin {
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     $ErrorActionPreference = 'Stop'
     function Convert-Plan {
         param(
@@ -95,11 +100,11 @@ begin {
                         IPv4            = if ($r.IPv4) { $r.IPv4 -split ';' } else { @() }
                         IPv6            = if ($r.IPv6) { $r.IPv6 -split ';' } else { @() }
                         TTL             = if ($Overrides.TTL) { $Overrides.TTL } elseif ($r.TTL) { [int]$r.TTL } else { 60 }
-                        ReplaceExisting = if ($Overrides.ReplaceExisting) { $true } else { [bool]::Parse(($r.ReplaceExisting ?? 'false')) }
-                        HealthProbe     = if ($Overrides.HealthProbe) { $true } else { [bool]::Parse(($r.HealthProbe ?? 'false')) }
-                        ProbeType       = if ($Overrides.ProbeType) { $Overrides.ProbeType } else { ($r.ProbeType ?? 'TCP') }
+                        ReplaceExisting = if ($Overrides.ReplaceExisting) { $true } elseif ($r.ReplaceExisting) { [bool]::Parse($r.ReplaceExisting) } else { $false }
+                        HealthProbe     = if ($Overrides.HealthProbe) { $true } elseif ($r.HealthProbe) { [bool]::Parse($r.HealthProbe) } else { $false }
+                        ProbeType       = if ($Overrides.ProbeType) { $Overrides.ProbeType } elseif ($r.ProbeType) { $r.ProbeType } else { 'TCP' }
                         ProbePort       = if ($Overrides.ProbePort) { [int]$Overrides.ProbePort } elseif ($r.ProbePort) { [int]$r.ProbePort } else { $null }
-                        ProbePath       = if ($Overrides.ProbePath) { $Overrides.ProbePath } else { ($r.ProbePath ?? '/') }
+                        ProbePath       = if ($Overrides.ProbePath) { $Overrides.ProbePath } elseif ($r.ProbePath) { $r.ProbePath } else { '/' }
                     }
                 }
             }
@@ -115,9 +120,9 @@ begin {
                         TTL             = if ($Overrides.TTL) { $Overrides.TTL } elseif ($r.TTL) { [int]$r.TTL } else { 60 }
                         ReplaceExisting = if ($Overrides.ReplaceExisting) { $true } else { [bool]$r.ReplaceExisting }
                         HealthProbe     = if ($Overrides.HealthProbe) { $true } else { [bool]$r.HealthProbe }
-                        ProbeType       = if ($Overrides.ProbeType) { $Overrides.ProbeType } else { ($r.ProbeType ?? 'TCP') }
+                        ProbeType       = if ($Overrides.ProbeType) { $Overrides.ProbeType } elseif ($r.ProbeType) { $r.ProbeType } else { 'TCP' }
                         ProbePort       = if ($Overrides.ProbePort) { [int]$Overrides.ProbePort } elseif ($r.ProbePort) { [int]$r.ProbePort } else { $null }
-                        ProbePath       = if ($Overrides.ProbePath) { $Overrides.ProbePath } else { ($r.ProbePath ?? '/') }
+                        ProbePath       = if ($Overrides.ProbePath) { $Overrides.ProbePath } elseif ($r.ProbePath) { $r.ProbePath } else { '/' }
                     }
                 }
             }
@@ -137,9 +142,10 @@ begin {
 
     function Test-Http {
         param([string]$Address, [int]$Port, [string]$Path = '/', [int]$TimeoutMs = 1500)
+        $authority = [UriBuilder]::new('http', $Address, $Port).Uri.GetLeftPart([UriPartial]::Authority)
+        $normalizedPath = if ($Path.StartsWith('/')) { $Path } else { "/$Path" }
+        $uri = [uri]::new($authority + $normalizedPath)
         try {
-            $path = if ($Path.StartsWith('/')) { $Path } else { "/$Path" }
-            $uri = [uri]::new(("http://{0}:{1}{2}" -f $Address, $Port, $path))
             $h = [System.Net.Http.HttpClient]::new()
             $h.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMs)
             $resp = $h.GetAsync($uri).GetAwaiter().GetResult()
@@ -153,12 +159,26 @@ begin {
     function Test-Healthy {
         param(
             [string[]]$Addresses,
+            [ValidateSet('IPv4', 'IPv6')][string]$Family,
             [bool]$Enabled,
-            [string]$ProbeType,
+            [ValidateSet('TCP', 'HTTP')][string]$ProbeType,
             [Nullable[int]]$ProbePort,
             [string]$ProbePath
         )
-        if (-not $Enabled -or -not $Addresses -or $Addresses.Count -eq 0) { return , $Addresses }
+        $expectedFamily = if ($Family -eq 'IPv4') { 'InterNetwork' } else { 'InterNetworkV6' }
+        $Addresses = @(
+            foreach ($value in $Addresses) {
+                if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                $parsed = [ipaddress]::Parse($value.Trim())
+                if ($parsed.AddressFamily -ne $expectedFamily) { throw "Expected $Family address, received '$value'." }
+                $parsed.IPAddressToString
+            }
+        ) | Sort-Object -Unique
+        if (-not $Enabled -or -not $Addresses -or $Addresses.Count -eq 0) {
+            $Addresses | Where-Object { $_ }
+            return
+        }
+        if ($ProbePort -and ($ProbePort -lt 1 -or $ProbePort -gt 65535)) { throw "Invalid probe port '$ProbePort'." }
         $port = if ($ProbeType -eq 'HTTP') { if ($ProbePort) { $ProbePort } else { 80 } }
         else { if ($ProbePort) { $ProbePort } else { throw "-ProbePort required for TCP health probe." } }
         $okList = New-Object System.Collections.Generic.List[string]
@@ -167,7 +187,8 @@ begin {
             else { Test-Http -Address $ip -Port $port -Path $ProbePath }
             if ($ok) { $okList.Add($ip) } else { Write-Warning "Probe failed: $ip (${ProbeType}:${port} ${ProbePath})" }
         }
-        , $okList.ToArray()
+        if ($okList.Count -eq 0) { throw 'No supplied backends passed their health check.' }
+        $okList.ToArray()
     }
 
     function Get-Current {
@@ -209,8 +230,10 @@ process {
             $ttlSec = if ($rec.TTL) { [int]$rec.TTL } else { 60 }
 
             # Filter healthy addresses if requested
-            $ipv4 = @(Test-Healthy -Addresses $rec.IPv4 -Enabled $rec.HealthProbe -ProbeType $rec.ProbeType -ProbePort $rec.ProbePort -ProbePath $rec.ProbePath)
-            $ipv6 = @(Test-Healthy -Addresses $rec.IPv6 -Enabled $rec.HealthProbe -ProbeType $rec.ProbeType -ProbePort $rec.ProbePort -ProbePath $rec.ProbePath)
+            $ipv4 = @(Test-Healthy -Addresses $rec.IPv4 -Family IPv4 -Enabled $rec.HealthProbe -ProbeType $rec.ProbeType -ProbePort $rec.ProbePort -ProbePath $rec.ProbePath)
+            $ipv6 = @(Test-Healthy -Addresses $rec.IPv6 -Family IPv6 -Enabled $rec.HealthProbe -ProbeType $rec.ProbeType -ProbePort $rec.ProbePort -ProbePath $rec.ProbePath)
+
+            if (-not $ipv4 -and -not $ipv6) { throw "No backend addresses supplied for '$fqdn'." }
 
             # Current records
             $currA = @(Get-Current -Zone $zone -Name $name -Type 'A')
@@ -228,22 +251,20 @@ process {
             $drop6 = if ($rec.ReplaceExisting) { @($curr6 | Where-Object { $_ -notin $ipv6 }) } else { @() }
 
             Write-Host "[$DnsServer] $fqdn (TTL=$ttlSec) - add A:[$($add4 -join ', ')] AAAA:[$($add6 -join ', ')]" -ForegroundColor Cyan
-            if ($PSCmdlet.ShouldProcess($fqdn, 'Apply DNS RR set')) {
 
-                foreach ($ip in $add4) {
-                    Add-DnsServerResourceRecordA -ComputerName $DnsServer -ZoneName $zone -Name $name `
-                        -IPv4Address $ip -TimeToLive ([TimeSpan]::FromSeconds($ttlSec)) -AllowUpdateAny -CreatePtr:$false | Out-Null
-                }
-                foreach ($ip in $add6) {
-                    Add-DnsServerResourceRecordAAAA -ComputerName $DnsServer -ZoneName $zone -Name $name `
-                        -IPv6Address $ip -TimeToLive ([TimeSpan]::FromSeconds($ttlSec)) -AllowUpdateAny | Out-Null
-                }
-                foreach ($ip in $drop4) {
-                    Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $zone -Name $name -RRType A -RecordData $ip -Force | Out-Null
-                }
-                foreach ($ip in $drop6) {
-                    Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $zone -Name $name -RRType AAAA -RecordData $ip -Force | Out-Null
-                }
+            foreach ($ip in $add4) {
+                Add-DnsServerResourceRecordA -ComputerName $DnsServer -ZoneName $zone -Name $name `
+                    -IPv4Address $ip -TimeToLive ([TimeSpan]::FromSeconds($ttlSec)) -AllowUpdateAny:$AllowUpdateAny -CreatePtr:$false | Out-Null
+            }
+            foreach ($ip in $add6) {
+                Add-DnsServerResourceRecordAAAA -ComputerName $DnsServer -ZoneName $zone -Name $name `
+                    -IPv6Address $ip -TimeToLive ([TimeSpan]::FromSeconds($ttlSec)) -AllowUpdateAny:$AllowUpdateAny | Out-Null
+            }
+            foreach ($ip in $drop4) {
+                Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $zone -Name $name -RRType A -RecordData $ip -Force | Out-Null
+            }
+            foreach ($ip in $drop6) {
+                Remove-DnsServerResourceRecord -ComputerName $DnsServer -ZoneName $zone -Name $name -RRType AAAA -RecordData $ip -Force | Out-Null
             }
 
             # Final state
@@ -279,7 +300,7 @@ process {
 
 end {
     if ($results.Count) {
-        "`nSummary:" | Out-Host
+        Write-Verbose 'DNS reconciliation summary'
         $results | Sort-Object ZoneName, RecordName | Format-Table ZoneName, RecordName, TTL, FinalIPv4, FinalIPv6, ReplaceExisting -Auto
     }
 }

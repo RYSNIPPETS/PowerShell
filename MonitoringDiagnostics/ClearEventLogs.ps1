@@ -8,7 +8,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
     [Alias('Name')]
@@ -29,10 +29,16 @@ param(
 
     [pscredential]$Credential,
 
-    [switch]$UseSSL
+    [switch]$UseSSL,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
 begin {
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
     $summary = [Collections.Generic.List[object]]::new()
     $getLogBlock = {
         param($IncludePattern, $ExcludePattern, $MinimumRecords, $IncludeDisabled)
@@ -49,14 +55,10 @@ begin {
     $clearBlock = {
         param($EventLogName, $BackupPath)
 
-        if ($BackupPath) {
-            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $BackupPath) -Force
-            & wevtutil.exe epl $EventLogName $BackupPath /ow:true
-            if ($LASTEXITCODE -ne 0) {
-                throw "wevtutil.exe failed to export '$EventLogName' with exit code $LASTEXITCODE."
-            }
-        }
-        Clear-WinEvent -LogName $EventLogName -Confirm:$false -ErrorAction Stop
+        $arguments = @('cl', $EventLogName)
+        if ($BackupPath) { $arguments += "/bu:$BackupPath" }
+        & "$env:SystemRoot\System32\wevtutil.exe" @arguments
+        if ($LASTEXITCODE -ne 0) { throw "Could not clear '$EventLogName' (wevtutil exit $LASTEXITCODE)." }
     }
 }
 
@@ -71,52 +73,67 @@ process {
             else {
                 $sessionParameters = @{ ComputerName = $computer; UseSSL = $UseSSL }
                 if ($Credential) { $sessionParameters.Credential = $Credential }
-                $session = New-PSSession @sessionParameters
-                $logs = Invoke-Command -Session $session -ScriptBlock $getLogBlock -ArgumentList $Include, $Exclude, $MinRecordCount, $AllLogs.IsPresent
+                $session = New-PSSession @sessionParameters -ErrorAction Stop
+                $logs = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock $getLogBlock -ArgumentList $Include, $Exclude, $MinRecordCount, $AllLogs.IsPresent
             }
 
             foreach ($log in $logs) {
                 $archive = -not $SkipArchive -and $ArchivePath
-                $action = if ($archive) { 'Archive and clear event log' } else { 'Clear event log' }
-                $target = "$computer :: $($log.LogName)"
-                if (-not $PSCmdlet.ShouldProcess($target, $action)) {
-                    continue
-                }
 
                 $safeLogName = $log.LogName -replace '[\\/:*?"<>|]', '_'
-                $fileName = '{0}_{1}_{2:yyyyMMdd_HHmmss}.evtx' -f $computer, $safeLogName, (Get-Date)
-                $remoteBackupPath = $null
-                if ($archive) {
-                    $remoteBackupPath = if ($isLocal) {
-                        $null = New-Item -ItemType Directory -Path $ArchivePath -Force
-                        Join-Path $ArchivePath $fileName
-                    }
-                    else {
-                        Join-Path $env:TEMP $fileName
-                    }
-                }
-
+                $fileName = '{0}_{1}_{2}.evtx' -f $computer.Trim('.'), $safeLogName, [guid]::NewGuid().ToString('N')
+                $backupPath = $null
+                $localFile = $null
+                $cleared = $false
+                $archived = $false
+                $failure = $null
                 try {
-                    if ($isLocal) {
-                        & $clearBlock $log.LogName $remoteBackupPath
-                    }
-                    else {
-                        Invoke-Command -Session $session -ScriptBlock $clearBlock -ArgumentList $log.LogName, $remoteBackupPath
-                        if ($archive) {
-                            $null = New-Item -ItemType Directory -Path $ArchivePath -Force
-                            Copy-Item -FromSession $session -LiteralPath $remoteBackupPath -Destination (Join-Path $ArchivePath $fileName) -Force
-                            Invoke-Command -Session $session -ScriptBlock {
-                                Remove-Item -LiteralPath $using:remoteBackupPath -Force -ErrorAction SilentlyContinue
-                            }
+                    if ($archive) {
+                        $folder = New-Item -ItemType Directory -Path $ArchivePath -Force -ErrorAction Stop
+                        $localFile = Join-Path $folder.FullName $fileName
+                        $backupPath = if ($isLocal) { $localFile } else {
+                            Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock { Join-Path ([IO.Path]::GetTempPath()) $using:fileName }
                         }
                     }
-                    $summary.Add([pscustomobject]@{ ComputerName = $computer; LogName = $log.LogName; Cleared = $true; Error = $null })
+                    if ($isLocal) { & $clearBlock $log.LogName $backupPath }
+                    else { Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock $clearBlock -ArgumentList $log.LogName, $backupPath }
+                    $cleared = $true
+                    if ($archive -and -not $isLocal) {
+                        $expected = Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
+                            (Get-FileHash -LiteralPath $using:backupPath -Algorithm SHA256 -ErrorAction Stop).Hash
+                        }
+                        Copy-Item -FromSession $session -LiteralPath $backupPath -Destination $localFile -ErrorAction Stop
+                        if ((Get-FileHash -LiteralPath $localFile -Algorithm SHA256 -ErrorAction Stop).Hash -ne $expected) {
+                            throw "Archive verification failed for '$localFile'."
+                        }
+                        $archived = $true
+                        Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock { Remove-Item -LiteralPath $using:backupPath -Force -ErrorAction Stop }
+                        $backupPath = $null
+                    }
+                    elseif ($archive) { $archived = $true }
                 }
-                catch {
-                    $summary.Add([pscustomobject]@{ ComputerName = $computer; LogName = $log.LogName; Cleared = $false; Error = $_.Exception.Message })
-                    Write-Error -ErrorRecord $_
-                }
+                catch { $failure = $_.Exception.Message }
+                $summary.Add([pscustomobject]@{
+                        ComputerName     = $computer
+                        LogName          = $log.LogName
+                        Cleared          = $cleared
+                        Archived         = $archived
+                        ArchivePath      = if ($archived) { $localFile }
+                        RemoteBackupPath = if (-not $isLocal) { $backupPath }
+                        Error            = $failure
+                    })
             }
+        }
+        catch {
+            $summary.Add([pscustomobject]@{
+                    ComputerName     = $computer
+                    LogName          = $null
+                    Cleared          = $false
+                    Archived         = $false
+                    ArchivePath      = $null
+                    RemoteBackupPath = $null
+                    Error            = $_.Exception.Message
+                })
         }
         finally {
             if ($session) { Remove-PSSession -Session $session }

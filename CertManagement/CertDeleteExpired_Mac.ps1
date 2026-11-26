@@ -3,9 +3,9 @@
     Reports and optionally deletes expired certificates from macOS keychains.
 #>
 
-#Requires -Version 7.0
+#Requires -Version 7.1
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [string[]]$Keychain = @(
         (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Library/Keychains/login.keychain-db'),
@@ -14,17 +14,19 @@ param(
 
     [datetime]$AsOf = (Get-Date),
 
-    [switch]$Delete
+    [switch]$Delete,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsMacOS) {
     throw 'This script requires macOS.'
 }
-foreach ($command in 'security', 'openssl') {
-    if (-not (Get-Command $command -CommandType Application -ErrorAction SilentlyContinue)) {
-        throw "'$command' was not found in PATH."
-    }
-}
+$null = Get-Command security -CommandType Application -ErrorAction Stop
 
 $results = [Collections.Generic.List[object]]::new()
 foreach ($keychainPath in $Keychain) {
@@ -41,29 +43,23 @@ foreach ($keychainPath in $Keychain) {
 
     $certificateMatches = [regex]::Matches($pemOutput, '(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----')
     foreach ($match in $certificateMatches) {
-        $details = $match.Value | & openssl x509 -noout -enddate -subject -issuer -fingerprint -sha1 2>$null
-        if ($LASTEXITCODE -ne 0) { continue }
-
-        $fields = @{}
-        foreach ($line in $details) {
-            if ($line -match '^(?<Name>notAfter|subject|issuer|sha1 Fingerprint)=(?<Value>.*)$') {
-                $fields[$Matches.Name] = $Matches.Value.Trim()
+        try {
+            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem($match.Value)
+            try {
+                $notAfter = $certificate.NotAfter
+                $subject = $certificate.Subject
+                $issuer = $certificate.Issuer
+                $thumbprint = $certificate.Thumbprint
             }
+            finally { $certificate.Dispose() }
         }
-        $notAfter = [datetimeoffset]::MinValue
-        if (-not $fields.notAfter -or -not [datetimeoffset]::TryParse(
-                $fields.notAfter,
-                [Globalization.CultureInfo]::InvariantCulture,
-                [Globalization.DateTimeStyles]::AssumeUniversal,
-                [ref]$notAfter
-            )) {
+        catch {
+            Write-Warning "Unable to read a certificate in '$keychainPath': $($_.Exception.Message)"
             continue
         }
-        if ($notAfter.UtcDateTime -ge $AsOf.ToUniversalTime()) { continue }
-
-        $thumbprint = $fields['sha1 Fingerprint'] -replace ':', ''
+        if ($notAfter.ToUniversalTime() -ge $AsOf.ToUniversalTime()) { continue }
         $deleted = $false
-        if ($Delete -and $PSCmdlet.ShouldProcess("$keychainPath :: $thumbprint", 'Delete expired certificate')) {
+        if ($Delete) {
             & security delete-certificate -Z $thumbprint $keychainPath
             if ($LASTEXITCODE -ne 0) { throw "Failed to delete certificate '$thumbprint' from '$keychainPath'." }
             $deleted = $true
@@ -71,10 +67,10 @@ foreach ($keychainPath in $Keychain) {
 
         $results.Add([pscustomobject]@{
                 Keychain   = $keychainPath
-                Subject    = $fields.subject
-                Issuer     = $fields.issuer
+                Subject    = $subject
+                Issuer     = $issuer
                 Thumbprint = $thumbprint
-                NotAfter   = $notAfter.LocalDateTime
+                NotAfter   = $notAfter
                 Deleted    = $deleted
             })
     }

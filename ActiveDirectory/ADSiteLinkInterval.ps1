@@ -5,15 +5,19 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Identity = 'DEFAULTIPSITELINK',
 
     [Parameter(Mandatory)]
     [ValidateRange(15, 10080)]
-    [int]$Minutes
+    [int]$Minutes,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Identity, "Set replication interval to $Minutes minutes")) {
-    Set-ADReplicationSiteLink -Identity $Identity -ReplicationFrequencyInMinutes $Minutes -PassThru
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-ADReplicationSiteLink -Identity $Identity -ReplicationFrequencyInMinutes $Minutes -PassThru

@@ -35,14 +35,20 @@ Overwrites existing session configurations and plugin registrations if they exis
 - Must be run as Administrator.
 - Restarts the WinRM service upon completion.
 #>
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param (
     [Parameter()]
     [string] $PowerShellHome,
 
     [Parameter()]
-    [switch] $Force
+    [switch] $Force,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 Set-StrictMode -Version Latest
 
@@ -184,32 +190,34 @@ function Register-WinRmPluginInternal {
 }
 
 function New-PluginConfigFileInternal {
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding()]
     param (
         [parameter(Mandatory)]
         [string]$TargetPluginConfigFile, # e.g., C:\Windows\System32\PowerShell\7.4.1\RemotePowerShellConfig.txt
 
         [parameter(Mandatory)]
-        [string]$ResolvedTargetPsHomeDir # e.g., C:\Program Files\PowerShell\7
+        [string]$ResolvedTargetPsHomeDir, # e.g., C:\Program Files\PowerShell\7
+        [Parameter(DontShow)]
+        [switch]$Confirm
     )
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
-    if ($PSCmdlet.ShouldProcess($TargetPluginConfigFile, "Create WinRM Plugin Configuration File")) {
-        $configContent = @"
+    $configContent = @"
 PSHOMEDIR=$ResolvedTargetPsHomeDir
 CORECLRDIR=$ResolvedTargetPsHomeDir
 "@
-        try {
-            Set-Content -Path $TargetPluginConfigFile -Value $configContent -Force -ErrorAction Stop
-            Write-Verbose "Created/Updated Plugin Config File: $TargetPluginConfigFile"
-        }
-        catch {
-            Write-Error "Failed to create plugin configuration file '$TargetPluginConfigFile'. Error: $($_.Exception.Message)" -ErrorAction Stop # Changed to Stop
-        }
+    try {
+        Set-Content -Path $TargetPluginConfigFile -Value $configContent -Force -ErrorAction Stop
+        Write-Verbose "Created/Updated Plugin Config File: $TargetPluginConfigFile"
+    }
+    catch {
+        Write-Error "Failed to create plugin configuration file '$TargetPluginConfigFile'. Error: $($_.Exception.Message)" -ErrorAction Stop # Changed to Stop
     }
 }
 
 function Install-PluginAndEndpoint {
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [CmdletBinding()]
     param (
         [parameter(Mandatory)]
         [string]$PluginDllSystemPath, # Where the DLL should be copied TO in System32
@@ -233,8 +241,13 @@ function Install-PluginAndEndpoint {
         [string]$PluginVersionedBasePath, # The directory in System32 (e.g., C:\Win\Sys32\PS\7.4.1)
 
         [parameter(Mandatory)]
-        [switch]$ForceWrite
+        [switch]$ForceWrite,
+
+        [Parameter(DontShow)]
+        [switch]$Confirm
     )
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
     Write-Verbose "Processing endpoint: $PluginEndpointName"
 
@@ -245,71 +258,43 @@ function Install-PluginAndEndpoint {
         return $false # Indicate skipped/failed
     }
 
-    # Perform the operation if ShouldProcess permits
-    if ($PSCmdlet.ShouldProcess($PluginEndpointName, "Register WinRM Plugin and Session Configuration")) {
-
-        # 1. Ensure target directory exists in System32
-        if (-not (Test-Path $PluginVersionedBasePath -PathType Container)) {
-            Write-Verbose "Creating plugin directory: $PluginVersionedBasePath"
-            try {
-                New-Item -Path $PluginVersionedBasePath -ItemType Directory -Force -ErrorAction Stop | Out-Null
-            }
-            catch {
-                Write-Error "Failed to create plugin directory '$PluginVersionedBasePath'. Error: $($_.Exception.Message)" -ErrorAction Stop
-            }
-        }
-
-        # 2. Copy the plugin DLL
-        Write-Verbose "Copying '$SourcePluginDllPath' to '$PluginDllSystemPath'"
+    # 1. Ensure target directory exists in System32
+    if (-not (Test-Path $PluginVersionedBasePath -PathType Container)) {
+        Write-Verbose "Creating plugin directory: $PluginVersionedBasePath"
         try {
-            Copy-Item -Path $SourcePluginDllPath -Destination $PluginDllSystemPath -Force -ErrorAction Stop
+            New-Item -Path $PluginVersionedBasePath -ItemType Directory -Force -ErrorAction Stop | Out-Null
         }
         catch {
-            Write-Error "Failed to copy plugin DLL to '$PluginDllSystemPath'. Error: $($_.Exception.Message)" -ErrorAction Stop
+            Write-Error "Failed to create plugin directory '$PluginVersionedBasePath'. Error: $($_.Exception.Message)" -ErrorAction Stop
         }
-
-        # 3. Create the configuration text file
-        New-PluginConfigFileInternal -TargetPluginConfigFile $PluginConfigFileSystemPath -ResolvedTargetPsHomeDir $ResolvedTargetPsHome -Verbose:$VerbosePreference
-
-        # 4. Register the plugin in the registry (this creates/updates the registry keys)
-        Register-WinRmPluginInternal -PluginDllSystemPath $PluginDllSystemPath `
-            -PluginEndpointName $PluginEndpointName `
-            -PluginPsVersionMajorMinor $PluginPsVersionMajorMinor `
-            -Verbose:$VerbosePreference
-
-        # 5. Register the PSSessionConfiguration (makes it visible to Get-PSSessionConfiguration, etc.)
-        #    This reads the registry config we just created. Use -Force if specified.
-        Write-Verbose "Registering PSSessionConfiguration: $PluginEndpointName"
-        $regParams = @{
-            Name        = $PluginEndpointName
-            Force       = $ForceWrite
-            ErrorAction = 'Stop' # Changed to Stop
-        }
-        try {
-            Register-PSSessionConfiguration @regParams -Verbose:$false # Suppress verbose from this cmdlet itself
-            Write-Information "Successfully registered PSSessionConfiguration '$PluginEndpointName'." # Use Write-Information
-        }
-        catch {
-            Write-Error "Failed to register PSSessionConfiguration '$PluginEndpointName'. This might happen if the registry configuration is incorrect or WinRM is malfunctioning. Error: $($_.Exception.Message)"
-            # Don't stop the whole script here, maybe the other endpoint will work. But return failure.
-            return $false
-        }
-
-        # 6. Validation
-        $validationEndpoint = Get-PSSessionConfiguration -Name $PluginEndpointName -ErrorAction SilentlyContinue
-        if ($null -eq $validationEndpoint) {
-            Write-Warning "Validation failed: PSSessionConfiguration '$PluginEndpointName' not found after registration attempt."
-            return $false
-        }
-        else {
-            Write-Verbose "Validation successful: Found PSSessionConfiguration '$PluginEndpointName'."
-            return $true # Indicate success
-        }
-    } # End ShouldProcess
-    else {
-        Write-Warning "Skipped configuration for '$PluginEndpointName' due to -WhatIf."
-        return $false # Indicate skipped
     }
+
+    # 2. Copy the plugin DLL
+    Write-Verbose "Copying '$SourcePluginDllPath' to '$PluginDllSystemPath'"
+    try {
+        Copy-Item -Path $SourcePluginDllPath -Destination $PluginDllSystemPath -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Error "Failed to copy plugin DLL to '$PluginDllSystemPath'. Error: $($_.Exception.Message)" -ErrorAction Stop
+    }
+
+    # 3. Create the configuration text file
+    New-PluginConfigFileInternal -TargetPluginConfigFile $PluginConfigFileSystemPath -ResolvedTargetPsHomeDir $ResolvedTargetPsHome -Verbose:($VerbosePreference -eq 'Continue')
+
+    # 4. Register the plugin in the registry (this creates/updates the registry keys)
+    Register-WinRmPluginInternal -PluginDllSystemPath $PluginDllSystemPath `
+        -PluginEndpointName $PluginEndpointName `
+        -PluginPsVersionMajorMinor $PluginPsVersionMajorMinor `
+        -Verbose:($VerbosePreference -eq 'Continue')
+
+    $pluginKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Plugin\$PluginEndpointName"
+    [xml]$registration = Get-ItemPropertyValue -LiteralPath $pluginKey -Name ConfigXML -ErrorAction Stop
+    $plugin = $registration.DocumentElement
+    $version = $plugin.InitializationParameters.Param | Where-Object Name -EQ 'PSVersion'
+    if ($plugin.Filename -ne $PluginDllSystemPath -or $version.Value -ne $PluginPsVersionMajorMinor) {
+        throw "WinRM registration for '$PluginEndpointName' does not match the requested installation."
+    }
+    return $true
 }
 
 #endregion
@@ -326,9 +311,8 @@ $successSpecific = Install-PluginAndEndpoint -PluginDllSystemPath $pluginDllSyst
     -PluginEndpointName $endpointNameSpecific `
     -PluginPsVersionMajorMinor $TargetPsVersionMajorMinor `
     -PluginVersionedBasePath $pluginVersionedBasePath `
-    -ForceWrite $Force `
-    -Verbose:$VerbosePreference `
-    -WhatIf:$WhatIfPreference
+    -ForceWrite:$Force `
+    -Verbose:($VerbosePreference -eq 'Continue')
 
 # Register Major Version Endpoint (e.g., PowerShell.7)
 $endpointNameMajor = "PowerShell.$($TargetPsVersion.Major)"
@@ -340,16 +324,15 @@ $successMajor = Install-PluginAndEndpoint -PluginDllSystemPath $pluginDllSystemP
     -PluginEndpointName $endpointNameMajor `
     -PluginPsVersionMajorMinor $TargetPsVersionMajorMinor `
     -PluginVersionedBasePath $pluginVersionedBasePath `
-    -ForceWrite $Force `
-    -Verbose:$VerbosePreference `
-    -WhatIf:$WhatIfPreference
+    -ForceWrite:$Force `
+    -Verbose:($VerbosePreference -eq 'Continue')
 
 #endregion
 
 #region Final Steps
 
-# Restart WinRM only if changes were made and not running in -WhatIf mode
-if (($successSpecific -or $successMajor) -and (-not $WhatIfPreference)) {
+# Restart WinRM only if changes were made
+if ($successSpecific -or $successMajor) {
     Write-Information "`nRestarting WinRM service to apply changes..."
     try {
         Restart-Service -Name WinRM -Force -ErrorAction Stop

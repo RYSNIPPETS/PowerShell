@@ -5,24 +5,27 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [switch]$StartScan
+    [switch]$StartScan,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 $policyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
 
-if ((Test-Path -LiteralPath $policyPath) -and
-    $PSCmdlet.ShouldProcess("$policyPath :: NoAutoUpdate", 'Remove policy value')) {
+if ((Test-Path -LiteralPath $policyPath)) {
     Remove-ItemProperty -Path $policyPath -Name NoAutoUpdate -ErrorAction SilentlyContinue
 }
 
 foreach ($serviceName in 'wuauserv', 'BITS') {
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-        if ($PSCmdlet.ShouldProcess($serviceName, 'Set service startup type to Manual')) {
-            Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
-        }
+        Set-Service -Name $serviceName -StartupType Manual -ErrorAction Stop
     }
 }
 

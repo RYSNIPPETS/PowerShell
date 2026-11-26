@@ -3,7 +3,7 @@
     Finds expired PEM or DER certificate files on Linux.
 #>
 
-#Requires -Version 7.0
+#Requires -Version 7.5
 
 [CmdletBinding()]
 param(
@@ -23,10 +23,6 @@ param(
 if (-not $IsLinux) {
     throw 'This script requires Linux.'
 }
-if (-not (Get-Command openssl -CommandType Application -ErrorAction SilentlyContinue)) {
-    throw 'OpenSSL was not found in PATH.'
-}
-
 $files = foreach ($directory in $Path) {
     if (Test-Path -LiteralPath $directory -PathType Container) {
         Get-ChildItem -LiteralPath $directory -File -Recurse -ErrorAction SilentlyContinue |
@@ -35,35 +31,28 @@ $files = foreach ($directory in $Path) {
 }
 
 foreach ($file in $files | Sort-Object FullName -Unique) {
-    $output = & openssl x509 -in $file.FullName -noout -enddate -subject -issuer -serial 2>$null
-    if ($LASTEXITCODE -ne 0) { continue }
-
-    $fields = @{}
-    foreach ($line in $output) {
-        if ($line -match '^(?<Name>notAfter|subject|issuer|serial)=(?<Value>.*)$') {
-            $fields[$Matches.Name] = $Matches.Value.Trim()
+    $certificates = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+    try {
+        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+        if ($bytes.Length -and $bytes[0] -eq 0x30) {
+            $null = $certificates.Add([Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadCertificate($bytes))
+        }
+        else {
+            $certificates.ImportFromPem([Text.Encoding]::ASCII.GetString($bytes))
+            if (-not $certificates.Count) { throw 'No PEM certificate found.' }
+        }
+        foreach ($certificate in $certificates) {
+            if ($certificate.NotAfter.ToUniversalTime() -lt $AsOf.ToUniversalTime()) {
+                [pscustomobject]@{
+                    Subject  = $certificate.Subject
+                    Issuer   = $certificate.Issuer
+                    Serial   = $certificate.SerialNumber
+                    NotAfter = $certificate.NotAfter
+                    FilePath = $file.FullName
+                }
+            }
         }
     }
-    if (-not $fields.notAfter) { continue }
-
-    $notAfter = [datetimeoffset]::MinValue
-    if (-not [datetimeoffset]::TryParse(
-            $fields.notAfter,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::AssumeUniversal,
-            [ref]$notAfter
-        )) {
-        Write-Warning "Could not parse expiration date '$($fields.notAfter)' in '$($file.FullName)'."
-        continue
-    }
-
-    if ($notAfter.UtcDateTime -lt $AsOf.ToUniversalTime()) {
-        [pscustomobject]@{
-            Subject  = $fields.subject
-            Issuer   = $fields.issuer
-            Serial   = $fields.serial
-            NotAfter = $notAfter.LocalDateTime
-            FilePath = $file.FullName
-        }
-    }
+    catch { Write-Warning "Unable to read '$($file.FullName)': $($_.Exception.Message)" }
+    finally { foreach ($certificate in $certificates) { $certificate.Dispose() } }
 }

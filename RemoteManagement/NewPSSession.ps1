@@ -22,7 +22,7 @@ param(
 )
 
 if ($PSCmdlet.ParameterSetName -eq 'SSH') {
-    $parameters = @{ HostName = $HostName; UserName = $UserName }
+    $parameters = @{ HostName = $HostName; UserName = $UserName; Options = @{ BatchMode = 'yes'; StrictHostKeyChecking = 'yes' } }
     if ($KeyFilePath) {
         $parameters.KeyFilePath = $KeyFilePath
     }

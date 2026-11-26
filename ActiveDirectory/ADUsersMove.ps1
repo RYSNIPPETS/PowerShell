@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$SearchBase,
@@ -24,8 +24,14 @@ param(
 
     [string]$ExportDirectory,
 
-    [switch]$Move
+    [switch]$Move,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $categories = @(
     @{ Name = 'Inactive'; TargetPath = $InactiveTargetPath; Users = @(Search-ADAccount -SearchBase $SearchBase -AccountInactive -UsersOnly -TimeSpan ([timespan]::FromDays($InactiveDays))) },
@@ -69,9 +75,7 @@ if ($ExportDirectory) {
 
 if ($Move) {
     foreach ($assignment in $assignments.Values) {
-        if ($PSCmdlet.ShouldProcess($assignment.User.DistinguishedName, "Move to '$($assignment.TargetPath)'")) {
-            Move-ADObject -Identity $assignment.User -TargetPath $assignment.TargetPath -ErrorAction Stop
-        }
+        Move-ADObject -Identity $assignment.User -TargetPath $assignment.TargetPath -ErrorAction Stop
     }
 }
 

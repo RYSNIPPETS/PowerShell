@@ -5,15 +5,19 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Identity = 'DEFAULTIPSITELINK',
 
     [Parameter(Mandatory)]
     [ValidateRange(1, 99999)]
-    [int]$Cost
+    [int]$Cost,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Identity, "Set site-link cost to $Cost")) {
-    Set-ADReplicationSiteLink -Identity $Identity -Cost $Cost -PassThru
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-ADReplicationSiteLink -Identity $Identity -Cost $Cost -PassThru

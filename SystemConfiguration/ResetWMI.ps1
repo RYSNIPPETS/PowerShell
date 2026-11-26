@@ -8,11 +8,17 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [ValidateSet('Verify', 'Salvage', 'Reset')]
-    [string]$Action = 'Verify'
+    [string]$Action = 'Verify',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $winmgmt = Join-Path $env:SystemRoot 'System32\wbem\winmgmt.exe'
 if (-not (Test-Path -LiteralPath $winmgmt)) {
@@ -24,17 +30,14 @@ $argument = switch ($Action) {
     'Salvage' { '/salvagerepository' }
     'Reset' { '/resetrepository' }
 }
-$impact = if ($Action -eq 'Verify') { 'Verify WMI repository consistency' } else { "$Action WMI repository" }
 
-if ($PSCmdlet.ShouldProcess('Local WMI repository', $impact)) {
-    $output = & $winmgmt $argument 2>&1
-    $exitCode = $LASTEXITCODE
-    [pscustomobject]@{
-        Action   = $Action
-        ExitCode = $exitCode
-        Output   = $output -join [Environment]::NewLine
-    }
-    if ($exitCode -ne 0) {
-        throw "winmgmt.exe $argument failed with exit code $exitCode."
-    }
+$output = & $winmgmt $argument 2>&1
+$exitCode = $LASTEXITCODE
+[pscustomobject]@{
+    Action   = $Action
+    ExitCode = $exitCode
+    Output   = $output -join [Environment]::NewLine
+}
+if ($exitCode -ne 0) {
+    throw "winmgmt.exe $argument failed with exit code $exitCode."
 }

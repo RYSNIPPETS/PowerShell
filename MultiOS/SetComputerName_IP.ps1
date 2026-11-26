@@ -5,7 +5,7 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$NewComputerName,
@@ -26,8 +26,14 @@ param(
     [Parameter(Mandatory)]
     [string]$InterfaceName,
 
-    [switch]$Restart
+    [switch]$Restart,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if ($IPAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
     $Gateway.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
@@ -35,14 +41,12 @@ if ($IPAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
 }
 
 if ($IsWindows) {
-    if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Rename to '$NewComputerName'")) {
-        Rename-Computer -NewName $NewComputerName -Force -Restart:$false -ErrorAction Stop
-    }
-    if ($PSCmdlet.ShouldProcess($InterfaceName, "Set $IPAddress/$PrefixLength with gateway $Gateway")) {
-        New-NetIPAddress -InterfaceAlias $InterfaceName -IPAddress $IPAddress -PrefixLength $PrefixLength -DefaultGateway $Gateway -ErrorAction Stop
-        Set-DnsClientServerAddress -InterfaceAlias $InterfaceName -ServerAddresses $DnsServer.IPAddressToString -ErrorAction Stop
-    }
-    if ($Restart -and $PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Restart computer')) {
+    Rename-Computer -NewName $NewComputerName -Force -Restart:$false -ErrorAction Stop
+
+    New-NetIPAddress -InterfaceAlias $InterfaceName -IPAddress $IPAddress -PrefixLength $PrefixLength -DefaultGateway $Gateway -ErrorAction Stop
+    Set-DnsClientServerAddress -InterfaceAlias $InterfaceName -ServerAddresses $DnsServer.IPAddressToString -ErrorAction Stop
+
+    if ($Restart) {
         Restart-Computer -Force
     }
 }
@@ -51,17 +55,16 @@ elseif ($IsLinux) {
     foreach ($command in 'hostnamectl', 'nmcli') {
         if (-not (Get-Command $command -CommandType Application -ErrorAction SilentlyContinue)) { throw "'$command' was not found." }
     }
-    if ($PSCmdlet.ShouldProcess([Environment]::MachineName, "Rename to '$NewComputerName'")) {
-        & hostnamectl set-hostname $NewComputerName
-        if ($LASTEXITCODE -ne 0) { throw "hostnamectl failed with exit code $LASTEXITCODE." }
-    }
-    if ($PSCmdlet.ShouldProcess($InterfaceName, "Set $IPAddress/$PrefixLength with gateway $Gateway")) {
-        & nmcli connection modify $InterfaceName ipv4.addresses "$IPAddress/$PrefixLength" ipv4.gateway $Gateway.IPAddressToString ipv4.dns ($DnsServer.IPAddressToString -join ',') ipv4.method manual
-        if ($LASTEXITCODE -ne 0) { throw "nmcli modify failed with exit code $LASTEXITCODE." }
-        & nmcli connection up $InterfaceName
-        if ($LASTEXITCODE -ne 0) { throw "nmcli activation failed with exit code $LASTEXITCODE." }
-    }
-    if ($Restart -and $PSCmdlet.ShouldProcess([Environment]::MachineName, 'Restart computer')) {
+
+    & hostnamectl set-hostname $NewComputerName
+    if ($LASTEXITCODE -ne 0) { throw "hostnamectl failed with exit code $LASTEXITCODE." }
+
+    & nmcli connection modify $InterfaceName ipv4.addresses "$IPAddress/$PrefixLength" ipv4.gateway $Gateway.IPAddressToString ipv4.dns ($DnsServer.IPAddressToString -join ',') ipv4.method manual
+    if ($LASTEXITCODE -ne 0) { throw "nmcli modify failed with exit code $LASTEXITCODE." }
+    & nmcli connection up $InterfaceName
+    if ($LASTEXITCODE -ne 0) { throw "nmcli activation failed with exit code $LASTEXITCODE." }
+
+    if ($Restart) {
         & shutdown -r now
     }
 }
@@ -72,19 +75,18 @@ elseif ($IsMacOS) {
         if ($bits -eq 0) { 0 } else { 256 - [Math]::Pow(2, 8 - $bits) }
     }
     $subnetMask = $maskOctets -join '.'
-    if ($PSCmdlet.ShouldProcess([Environment]::MachineName, "Rename to '$NewComputerName'")) {
-        foreach ($nameType in 'ComputerName', 'HostName', 'LocalHostName') {
-            & /usr/sbin/scutil --set $nameType $NewComputerName
-            if ($LASTEXITCODE -ne 0) { throw "scutil failed with exit code $LASTEXITCODE for '$nameType'." }
-        }
+
+    foreach ($nameType in 'ComputerName', 'HostName', 'LocalHostName') {
+        & /usr/sbin/scutil --set $nameType $NewComputerName
+        if ($LASTEXITCODE -ne 0) { throw "scutil failed with exit code $LASTEXITCODE for '$nameType'." }
     }
-    if ($PSCmdlet.ShouldProcess($InterfaceName, "Set $IPAddress/$PrefixLength with gateway $Gateway")) {
-        & /usr/sbin/networksetup -setmanual $InterfaceName $IPAddress.IPAddressToString $subnetMask $Gateway.IPAddressToString
-        if ($LASTEXITCODE -ne 0) { throw "networksetup failed with exit code $LASTEXITCODE." }
-        & /usr/sbin/networksetup -setdnsservers $InterfaceName $DnsServer.IPAddressToString
-        if ($LASTEXITCODE -ne 0) { throw "networksetup DNS configuration failed with exit code $LASTEXITCODE." }
-    }
-    if ($Restart -and $PSCmdlet.ShouldProcess([Environment]::MachineName, 'Restart computer')) {
+
+    & /usr/sbin/networksetup -setmanual $InterfaceName $IPAddress.IPAddressToString $subnetMask $Gateway.IPAddressToString
+    if ($LASTEXITCODE -ne 0) { throw "networksetup failed with exit code $LASTEXITCODE." }
+    & /usr/sbin/networksetup -setdnsservers $InterfaceName $DnsServer.IPAddressToString
+    if ($LASTEXITCODE -ne 0) { throw "networksetup DNS configuration failed with exit code $LASTEXITCODE." }
+
+    if ($Restart) {
         & /sbin/shutdown -r now
     }
 }

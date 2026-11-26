@@ -3,7 +3,7 @@
     Installs a Windows product key on remote computers.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string[]]$ComputerName,
@@ -12,14 +12,16 @@ param(
     [ValidatePattern('^[A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){4}$')]
     [string]$ProductKey,
 
-    [pscredential]$Credential
+    [pscredential]$Credential,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-foreach ($computer in $ComputerName) {
-    if (-not $PSCmdlet.ShouldProcess($computer, 'Install Windows product key')) {
-        continue
-    }
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
+foreach ($computer in $ComputerName) {
     $parameters = @{
         ComputerName = $computer
         ScriptBlock  = {

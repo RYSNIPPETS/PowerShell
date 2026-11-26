@@ -6,7 +6,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('1', '2', '3', '4', '5', 'Q')]
-    [string]$Selection
+    [string]$Selection,
+
+    [switch]$Interactive
 )
 
 $menuItems = [ordered]@{
@@ -17,6 +19,7 @@ $menuItems = [ordered]@{
     '5' = 'Function Five'
 }
 
+if (-not $Selection -and -not $Interactive) { $menuItems.GetEnumerator(); return }
 if (-not $Selection) {
     Write-Host 'Console Menu' -ForegroundColor Cyan
     foreach ($entry in $menuItems.GetEnumerator()) {

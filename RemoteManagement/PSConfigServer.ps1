@@ -5,24 +5,28 @@
     Manages powershell config server.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [switch]$EnableCredSSP,
 
     [ValidateSet('DoNotChange', 'RemoteSigned', 'AllSigned', 'Bypass')]
-    [string]$ExecutionPolicy = 'DoNotChange'
+    [string]$ExecutionPolicy = 'DoNotChange',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
-if ($PSCmdlet.ShouldProcess('WinRM', 'Enable PowerShell remoting on this server')) {
-    Enable-PSRemoting -Force -SkipNetworkProfileCheck
-}
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
 
-if ($EnableCredSSP -and $PSCmdlet.ShouldProcess('CredSSP server role', 'Enable CredSSP on this server')) {
+if ($EnableCredSSP) {
     Enable-WSManCredSSP -Role Server -Force
 }
 
-if ($ExecutionPolicy -ne 'DoNotChange' -and $PSCmdlet.ShouldProcess('Execution Policy', ('Set LocalMachine execution policy to {0}' -f $ExecutionPolicy))) {
+if ($ExecutionPolicy -ne 'DoNotChange') {
     Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy $ExecutionPolicy -Force
 }

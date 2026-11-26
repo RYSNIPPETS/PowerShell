@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$InterfaceAlias,
@@ -25,15 +25,16 @@ param(
     [Parameter(Mandatory)]
     [string]$NewComputerName,
 
-    [switch]$Restart
+    [switch]$Restart,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-$target = "$InterfaceAlias on $env:COMPUTERNAME"
-if ($PSCmdlet.ShouldProcess($target, 'Configure static IPv4 address and DNS servers')) {
-    New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -PrefixLength $PrefixLength -DefaultGateway $DefaultGateway -AddressFamily IPv4
-    Set-DnsClientServerAddress -InterfaceAlias $InterfaceAlias -ServerAddresses $DnsServerAddress
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "Rename computer to '$NewComputerName'")) {
-    Rename-Computer -NewName $NewComputerName -Force -Restart:$Restart
-}
+New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $IPAddress -PrefixLength $PrefixLength -DefaultGateway $DefaultGateway -AddressFamily IPv4
+Set-DnsClientServerAddress -InterfaceAlias $InterfaceAlias -ServerAddresses $DnsServerAddress
+
+Rename-Computer -NewName $NewComputerName -Force -Restart:$Restart

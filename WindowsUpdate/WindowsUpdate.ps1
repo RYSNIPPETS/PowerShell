@@ -10,7 +10,7 @@
 #Requires -RunAsAdministrator
 #Requires -Modules PSWindowsUpdate
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [switch]$Install,
 
@@ -18,8 +18,14 @@ param(
 
     [switch]$AcceptAll,
 
-    [switch]$AutoReboot
+    [switch]$AutoReboot,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 if (-not $IsWindows) {
     throw 'This script requires Windows.'
@@ -28,7 +34,9 @@ if (($AcceptAll -or $AutoReboot) -and -not $Install) {
     throw '-AcceptAll and -AutoReboot are valid only with -Install.'
 }
 
-if ($MicrosoftUpdate -and $PSCmdlet.ShouldProcess('Microsoft Update service', 'Register update service')) {
+if ($Install -and -not $AcceptAll) { throw 'Supply -AcceptAll to install updates unattended.' }
+
+if ($MicrosoftUpdate) {
     Add-WUServiceManager -MicrosoftUpdate -Confirm:$false | Out-Null
 }
 
@@ -37,6 +45,7 @@ if (-not $Install) {
     return
 }
 
-if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'Install available Windows updates')) {
-    Get-WindowsUpdate -MicrosoftUpdate:$MicrosoftUpdate -Install -AcceptAll:$AcceptAll -AutoReboot:$AutoReboot
-}
+$installOptions = @{ MicrosoftUpdate = [bool]$MicrosoftUpdate; Install = $true; AcceptAll = $true }
+if ($AutoReboot) { $installOptions.AutoReboot = $true }
+else { $installOptions.IgnoreReboot = $true }
+Get-WindowsUpdate @installOptions

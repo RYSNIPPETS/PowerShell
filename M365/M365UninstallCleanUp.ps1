@@ -7,10 +7,16 @@
 #>
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [switch] $Aggressive   # removes extra cached folders if present
+    [switch] $Aggressive,   # removes extra cached folders if present
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'This script requires Windows.' }
 
@@ -20,10 +26,9 @@ foreach ($svc in $services) {
     $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($s -and $s.Status -ne 'Stopped') {
         Write-Host "Stopping service $svc..." -ForegroundColor Yellow
-        if ($PSCmdlet.ShouldProcess($svc, 'Stop and disable service')) {
-            Stop-Service $svc -Force -ErrorAction SilentlyContinue
-            Set-Service  $svc -StartupType Disabled -ErrorAction SilentlyContinue
-        }
+
+        Stop-Service $svc -Force -ErrorAction SilentlyContinue
+        Set-Service  $svc -StartupType Disabled -ErrorAction SilentlyContinue
     }
 }
 
@@ -36,9 +41,8 @@ $tasks = @(
 foreach ($t in $tasks) {
     if (Get-ScheduledTask -TaskPath ($t.Substring(0, $t.LastIndexOf('\') + 1)) -TaskName ($t.Split('\')[-1]) -ErrorAction SilentlyContinue) {
         Write-Host "Deleting scheduled task $t" -ForegroundColor Yellow
-        if ($PSCmdlet.ShouldProcess($t, 'Remove scheduled task')) {
-            Unregister-ScheduledTask -TaskPath ($t.Substring(0, $t.LastIndexOf('\') + 1)) -TaskName ($t.Split('\')[-1]) -Confirm:$false
-        }
+
+        Unregister-ScheduledTask -TaskPath ($t.Substring(0, $t.LastIndexOf('\') + 1)) -TaskName ($t.Split('\')[-1]) -Confirm:$false
     }
 }
 
@@ -46,21 +50,21 @@ foreach ($t in $tasks) {
 $paths = @(
     "$env:ProgramFiles\Common Files\microsoft shared\ClickToRun",
     "$env:ProgramFiles\Microsoft Office",
-    "$env:ProgramFiles(x86)\Microsoft Office",
     "$env:LOCALAPPDATA\Microsoft\Office",
-    "$env:APPDATA\Microsoft\Templates",
     "$env:ProgramData\Microsoft\Office",
     "$env:ProgramData\Microsoft\ClickToRun"
 )
+if (${env:ProgramFiles(x86)}) {
+    $paths += Join-Path ${env:ProgramFiles(x86)} 'Microsoft Office'
+}
 if ($Aggressive) {
     $paths += @("$env:LOCALAPPDATA\Microsoft\OneDrive\Update", "$env:LOCALAPPDATA\Microsoft\Teams\current")
 }
 foreach ($p in $paths) {
-    if (Test-Path $p) {
+    if (Test-Path -LiteralPath $p) {
         Write-Host "Removing $p" -ForegroundColor Yellow
-        if ($PSCmdlet.ShouldProcess($p, 'Remove Microsoft 365 leftover directory')) {
-            Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
-        }
+
+        Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -71,10 +75,8 @@ Get-ChildItem $reg -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -like '*Click-to-Run*' -or $_.DisplayName -like '*Microsoft 365*' } |
     ForEach-Object {
         try {
-            if ($PSCmdlet.ShouldProcess($_.PSPath, 'Remove stale uninstall registry key')) {
-                Remove-Item $_.PSPath -Recurse -Force
-                Write-Host "Cleaned uninstall key: $($_.DisplayName)" -ForegroundColor Green
-            }
+            Remove-Item $_.PSPath -Recurse -Force
+            Write-Host "Cleaned uninstall key: $($_.DisplayName)" -ForegroundColor Green
         }
         catch { Write-Warning "Failed to clean uninstall key '$($_.PSPath)': $($_.Exception.Message)" }
     }

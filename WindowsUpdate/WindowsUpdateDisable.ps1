@@ -5,23 +5,28 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
-    [switch]$StopServices
+    [switch]$StopServices,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if (-not $IsWindows) { throw 'This script requires Windows.' }
-$policyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
-if ($PSCmdlet.ShouldProcess($policyPath, 'Set NoAutoUpdate policy to 1')) {
-    New-Item -Path $policyPath -Force | Out-Null
-    New-ItemProperty -Path $policyPath -Name NoAutoUpdate -PropertyType DWord -Value 1 -Force | Out-Null
-}
+if (-not $IsWindows) { throw 'This script requires Windows.' }
+$subkey = 'SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+$policyPath = "HKLM:\$subkey"
+
+[Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($subkey).Dispose()
+New-ItemProperty -Path $policyPath -Name NoAutoUpdate -PropertyType DWord -Value 1 -Force | Out-Null
 
 if ($StopServices) {
     foreach ($serviceName in 'wuauserv', 'BITS') {
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-        if ($service -and $service.Status -ne 'Stopped' -and $PSCmdlet.ShouldProcess($serviceName, 'Stop service')) {
+        if ($service -and $service.Status -ne 'Stopped') {
             Stop-Service -Name $serviceName -Force -ErrorAction Stop
         }
     }

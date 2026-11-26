@@ -6,15 +6,17 @@
 using namespace System.Security.Cryptography.X509Certificates
 
 function New-X509Certificate {
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    [CmdletBinding()]
     param (
         [Parameter(Position = 0, Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [String]$CommonName
+        [String]$CommonName,
+
+        [Parameter(DontShow)]
+        [switch]$Confirm
     )
-    if (-not $PSCmdlet.ShouldProcess($CommonName, 'Create and install self-signed X.509 certificate')) {
-        return
-    }
+    $ConfirmPreference = 'None'
+    if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
     $DN = New-Object -ComObject 'X509Enrollment.CX500DistinguishedName.1'
     $DN.Encode("CN=$CommonName", 0)

@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [ValidateSet(0, 1, 2, 3, 4, 5)]
     [int]$AdministratorPromptBehavior = 5,
@@ -13,13 +13,18 @@ param(
     [ValidateSet(0, 1, 3)]
     [int]$StandardUserPromptBehavior = 3,
 
-    [bool]$PromptOnSecureDesktop = $true
+    [bool]$PromptOnSecureDesktop = $true,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 $path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\System'
-if ($PSCmdlet.ShouldProcess('Local computer', 'Configure UAC prompt behavior')) {
-    Set-ItemProperty -LiteralPath $path -Name EnableLUA -Value 1 -Type DWord
-    Set-ItemProperty -LiteralPath $path -Name ConsentPromptBehaviorAdmin -Value $AdministratorPromptBehavior -Type DWord
-    Set-ItemProperty -LiteralPath $path -Name ConsentPromptBehaviorUser -Value $StandardUserPromptBehavior -Type DWord
-    Set-ItemProperty -LiteralPath $path -Name PromptOnSecureDesktop -Value ([int]$PromptOnSecureDesktop) -Type DWord
-}
+
+Set-ItemProperty -LiteralPath $path -Name EnableLUA -Value 1 -Type DWord
+Set-ItemProperty -LiteralPath $path -Name ConsentPromptBehaviorAdmin -Value $AdministratorPromptBehavior -Type DWord
+Set-ItemProperty -LiteralPath $path -Name ConsentPromptBehaviorUser -Value $StandardUserPromptBehavior -Type DWord
+Set-ItemProperty -LiteralPath $path -Name PromptOnSecureDesktop -Value ([int]$PromptOnSecureDesktop) -Type DWord

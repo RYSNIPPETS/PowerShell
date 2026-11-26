@@ -5,7 +5,7 @@
 
 #Requires -Version 7.0
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
@@ -13,8 +13,14 @@ param(
 
     [string[]]$ArgumentList,
 
-    [switch]$Wait
+    [switch]$Wait,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $resolvedPath = (Resolve-Path -LiteralPath $FilePath).Path
 $isElevated = if ($IsWindows) {
@@ -26,33 +32,34 @@ else {
     (& id -u) -eq 0
 }
 
-if (-not $PSCmdlet.ShouldProcess($resolvedPath, 'Run PowerShell script with elevated privileges')) { return }
 if ($isElevated) {
     & $resolvedPath @ArgumentList
     return
 }
 
+$startInfo = [Diagnostics.ProcessStartInfo]::new()
 if ($IsWindows) {
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = (Join-Path $PSHOME 'pwsh.exe')
-    $startInfo.Verb = 'runas'
-    $startInfo.UseShellExecute = $true
-    foreach ($argument in @('-NoProfile', '-File', $resolvedPath) + $ArgumentList) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
-    $process = [Diagnostics.Process]::Start($startInfo)
+    throw 'Start the calling process with an elevated Windows token.'
 }
 elseif ($IsLinux -or $IsMacOS) {
-    if (-not (Get-Command sudo -CommandType Application -ErrorAction SilentlyContinue)) { throw "'sudo' was not found." }
-    $process = Start-Process -FilePath sudo -ArgumentList (@((Join-Path $PSHOME 'pwsh'), '-NoProfile', '-File', $resolvedPath) + $ArgumentList) -PassThru
+    $startInfo.FileName = (Get-Command sudo -CommandType Application -ErrorAction Stop).Source
+    $startInfo.UseShellExecute = $false
+    $startInfo.ArgumentList.Add('-n')
+    $startInfo.ArgumentList.Add((Join-Path $PSHOME 'pwsh'))
 }
 else {
     throw "Unsupported platform '$($PSVersionTable.Platform)'."
 }
+foreach ($argument in @('-NoProfile', '-NonInteractive', '-File', $resolvedPath)) { $startInfo.ArgumentList.Add($argument) }
+foreach ($argument in $ArgumentList) { $startInfo.ArgumentList.Add($argument) }
+$process = [Diagnostics.Process]::Start($startInfo)
 
 if ($Wait) {
-    $process.WaitForExit()
-    if ($process.ExitCode -ne 0) { throw "Elevated script exited with code $($process.ExitCode)." }
+    try {
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw "Elevated script exited with code $($process.ExitCode)." }
+    }
+    finally { $process.Dispose() }
 }
 else {
     $process

@@ -5,7 +5,7 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidatePattern('^[0-9a-fA-F:.]+/\d+$')]
@@ -16,12 +16,17 @@ param(
 
     [string]$Description,
 
-    [string]$Location
+    [string]$Location,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{ Name = $Name; Site = $Site }
 if ($Description) { $parameters.Description = $Description }
 if ($Location) { $parameters.Location = $Location }
-if ($PSCmdlet.ShouldProcess($Name, "Create replication subnet for site '$Site'")) {
-    New-ADReplicationSubnet @parameters -PassThru
-}
+
+New-ADReplicationSubnet @parameters -PassThru

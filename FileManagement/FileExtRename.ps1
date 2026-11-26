@@ -3,7 +3,7 @@
     Changes file extensions without converting file contents.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [string]$Path = $PWD,
 
@@ -13,12 +13,18 @@ param(
 
     [Parameter(Mandatory)]
     [ValidatePattern('^\.?[^.\\/]+$')]
-    [string]$ToExtension
+    [string]$ToExtension,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $from = if ($FromExtension.StartsWith('.')) { $FromExtension } else { ".$FromExtension" }
 $to = if ($ToExtension.StartsWith('.')) { $ToExtension } else { ".$ToExtension" }
 
 Get-ChildItem -LiteralPath $Path -File |
     Where-Object Extension -EQ $from |
-    Rename-Item -NewName { [IO.Path]::ChangeExtension($_.Name, $to) } -WhatIf:$WhatIfPreference
+    Rename-Item -NewName { [IO.Path]::ChangeExtension($_.Name, $to) }

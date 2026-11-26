@@ -5,7 +5,7 @@
 
 #Requires -RunAsAdministrator
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
@@ -15,8 +15,14 @@ param(
 
     [switch]$IncludeManagementTools,
 
-    [switch]$Restart
+    [switch]$Restart,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
+
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
 
 $parameters = @{
     Name                   = $Name
@@ -28,6 +34,4 @@ if ($ComputerName -and $ComputerName -notin '.', 'localhost', $env:COMPUTERNAME)
     $parameters.ComputerName = $ComputerName
 }
 
-if ($PSCmdlet.ShouldProcess($ComputerName, "Install Windows feature(s): $($Name -join ', ')")) {
-    Install-WindowsFeature @parameters
-}
+Install-WindowsFeature @parameters

@@ -3,7 +3,7 @@
     Creates a self-signed certificate in a Windows certificate store.
 #>
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string[]]$DnsName,
@@ -13,10 +13,15 @@ param(
     [ValidateRange(1, 120)]
     [int]$ValidMonths = 24,
 
-    [string]$CertStoreLocation = 'Cert:\LocalMachine\My'
+    [string]$CertStoreLocation = 'Cert:\LocalMachine\My',
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
 $subject = 'CN={0}' -f $DnsName[0]
-if ($PSCmdlet.ShouldProcess($subject, "Create self-signed certificate in '$CertStoreLocation'")) {
-    New-SelfSignedCertificate -DnsName $DnsName -Subject $subject -FriendlyName $FriendlyName -NotAfter (Get-Date).AddMonths($ValidMonths) -CertStoreLocation $CertStoreLocation
-}
+
+New-SelfSignedCertificate -DnsName $DnsName -Subject $subject -FriendlyName $FriendlyName -NotAfter (Get-Date).AddMonths($ValidMonths) -CertStoreLocation $CertStoreLocation

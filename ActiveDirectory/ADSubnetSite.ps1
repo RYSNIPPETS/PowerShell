@@ -5,15 +5,19 @@
 
 #Requires -Modules ActiveDirectory
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$Identity,
 
     [Parameter(Mandatory)]
-    [string]$Site
+    [string]$Site,
+
+    [Parameter(DontShow)]
+    [switch]$Confirm
 )
 
-if ($PSCmdlet.ShouldProcess($Identity, "Assign subnet to site '$Site'")) {
-    Set-ADReplicationSubnet -Identity $Identity -Site $Site -PassThru
-}
+$ConfirmPreference = 'None'
+if ($Confirm) { Write-Verbose 'Confirmation is disabled for unattended execution.' }
+
+Set-ADReplicationSubnet -Identity $Identity -Site $Site -PassThru
